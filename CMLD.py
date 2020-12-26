@@ -4,11 +4,11 @@ import tkinter.filedialog
 from tkinter import ttk
 from tkinter import scrolledtext
 from urllib import request,parse
-import json,gzip,os,re,sys,_thread
+import json,gzip,os,re,sys,_thread,time
 
 #需要完善：Search函数
 
-version = '1.2.1.20201223_alpha'
+version = '1.2.2.20201226_beta'
 config = {'official_api':False,
           'yiyan':True}
 repChr = {'/':'／',
@@ -30,8 +30,8 @@ def getData(url,timeout=5,headers={"User-Agent":"Mozilla/5.0 (Windows NT 6.1; WO
         response = request.urlopen(req,timeout=timeout)
         data = response.read()
         code = response.getcode()
-    except:
-        return {'data':None,'code':0}
+    except Exception as e:
+        return {'data':None,'code':0,'error':str(e)}
     try:
         data = gzip.decompress(data)
         gz = True
@@ -55,11 +55,14 @@ def replaceChr(text):
 
 def getMusic_tp(MusicID):
     url = 'https://api.imjad.cn/cloudmusic/?type=lyric&id='+str(MusicID)
-    jsonData = json.loads(getData(url)['data'])
+    tmp = getData(url)
+    if tmp['data'] == None:
+        return {'error':tmp['error'],'code':tmp['code']}
+    jsonData = json.loads(tmp['data'])
     try:
         lrcdata = jsonData['lrc']['lyric']
     except:
-        return {}
+        return {'error':'No Lyrics.','code':-1}
     
     url = 'https://api.imjad.cn/cloudmusic/?type=detail&id='+str(MusicID)
     jsonData = json.loads(getData(url)['data'])['songs'][0]
@@ -74,9 +77,12 @@ def getMusic_tp(MusicID):
     return {'title':title,'singer':singer,'lrc':lrcdata,'cover':cover}
     
 def getMusic_off(MusicID):
-    lrcdata = json.loads(getData('http://music.163.com/api/song/media?id='+str(MusicID))['data'])
+    tmp = getData('http://music.163.com/api/song/media?id='+str(MusicID))
+    if tmp['data'] == None:
+        return {'error':tmp['error'],'code':tmp['code']}
+    lrcdata = json.loads(tmp['data'])
     if "lyric" not in lrcdata:
-        return {}
+        return {'error':'No Lyrics.','code':-1}
     
     data = getData('https://music.163.com/song?id='+str(MusicID))['data']
     sign = r'<script type="application/ld+json">'
@@ -103,7 +109,13 @@ def getMusic_off(MusicID):
 
 def searchMusic(keyword):
     url = 'https://v1.hitokoto.cn/nm/search/'+parse.quote(keyword)
-    tmpdata = json.loads(getData(url)['data'])['result']['songs']
+    tmp = getData(url)
+    if tmp['data'] == None:
+        return {'error':tmp['error'],'code':tmp['code']}
+    try:
+        tmpdata = json.loads(tmp['data'])['result']['songs']
+    except:
+        return {'error':'No Search Result.','code':-1}
     retData = {}
     for obj in tmpdata:
         ar = []
@@ -128,7 +140,7 @@ class MainWindow(object):
         self.label_text2 = tk.Label(self.window,text='')
         self.label_text3 = tk.Label(self.window,text='')
         self.label_text4 = tk.Label(self.window,text='')
-        self.sctext_lyricShow = scrolledtext.ScrolledText(self.window,width=40,height=13,wrap=tk.WORD,state='disabled')
+        self.sctext_lyricShow = scrolledtext.ScrolledText(self.window,width=40,height=13,wrap=tk.WORD,state='disabled',selectbackground='#66CCFF')
         self.label_text5 = tk.Label(self.window,text='输出文件 :')
         self.entry_savePathShow = tk.Entry(self.window,text='',state='disabled')
         self.button_savePathSel = tk.Button(self.window,text='浏览',state='disabled',command=self.selectSavePath)
@@ -136,8 +148,10 @@ class MainWindow(object):
         self.button_setting = tk.Button(self.window,text='设置',command=self.config)
         self.button_save = tk.Button(self.window,text='保存',state='disabled',command=self.save)
         self.button_exit = tk.Button(self.window,text='退出',command=self.close)
-        self.button_search = tk.Button(self.window,text='搜索(Alpha)',command=self.search)
+        self.button_search = tk.Button(self.window,text='搜索',command=self.search)
+        self.label_batchProcessShow = tk.Label(self.window,text='')
         self.label_yiyan = tk.Label(self.window,text='')
+        self.label_yiyan.bind('<Button-1>',self.updateYiyan)
 
         self.label_text1.grid(column=0,row=0)
         self.entry_idInput.grid(column=1,row=0)
@@ -155,6 +169,7 @@ class MainWindow(object):
         self.button_help.grid(column=2,row=6,sticky='w')
         self.button_exit.grid(column=0,row=6,sticky='w')
         self.button_search.grid(column=2,row=7,columnspan=2)
+        self.label_batchProcessShow.grid(column=1,row=7)
         self.label_yiyan.grid(column=0,row=8,sticky='w',columnspan=4)
 
         if config['yiyan']:
@@ -205,38 +220,49 @@ class MainWindow(object):
         file = tkinter.filedialog.asksaveasfilename(title='保存为',filetypes=[('lrc歌词文件','*.lrc')],defaultextension='.lrc',initialfile=filename)
         self.setEntry(entry=self.entry_savePathShow,lock=True,text=file)
 
-    def save(self):
-        path = self.entry_savePathShow.get()
+    def save(self,path=None,ignoreError=False):
+        if path == None:
+            path = self.entry_savePathShow.get()
         if path == '':
-            tk.messagebox.showinfo(title='(ノ▼Д▼)ノ',message='你还没选保存目录啊喂！\n是想让我刻到你DNA里吗⁄(⁄ ⁄•⁄ω⁄•⁄ ⁄)⁄')
+            if not ignoreError: 
+                tk.messagebox.showinfo(title='(ノ▼Д▼)ノ',message='你还没选保存目录啊喂！\n是想让我刻到你DNA里吗⁄(⁄ ⁄•⁄ω⁄•⁄ ⁄)⁄')
             return
         content = self.sctext_lyricShow.get('1.0','end').strip()
         if content == '':
-            tmp = tk.messagebox.askyesno(title='｡ﾟヽ(ﾟ´Д`)ﾉﾟ｡',message='歌词不见啦嘤嘤嘤(╥﹏╥)\n这是bug吧，绝对是bug吧！要不再试一次？')
-            if tmp:
-                self.setEntry(entry=self.entry_idInput,text=str(self.musicId))
-                self.getIt()
+            if not ignoreError:
+                tmp = tk.messagebox.askyesno(title='｡ﾟヽ(ﾟ´Д`)ﾉﾟ｡',message='歌词不见啦嘤嘤嘤(╥﹏╥)\n这是bug吧，绝对是bug吧！要不再试一次？')
+                if tmp:
+                    self.setEntry(entry=self.entry_idInput,text=str(self.musicId))
+                    self.getIt()
             return
         with open(path,'w+',encoding='utf-8') as f:
             f.write(content)
-        tk.messagebox.showinfo(title='ヽ(✿ﾟ▽ﾟ)ノ',message='完成！')
+        if not ignoreError:
+            tk.messagebox.showinfo(title='ヽ(✿ﾟ▽ﾟ)ノ',message='完成！')
 
     def getIt_clone(self,self_):#供bind调用的克隆函数
         self.getIt()
 
-    def getIt(self):
+    def getIt(self,MusicID=None,ignoreError=False,autoSave=False):
+        if MusicID == None:
+            MusicID = self.entry_idInput.get()
         try:
-            int(self.entry_idInput.get())
+            int(MusicID)
         except:
-            tk.messagebox.showinfo(title='啊这？(#`Д´)ﾉ',message='你确定你输入的是MusicID？')
+            if not ignoreError:
+                tk.messagebox.showinfo(title='啊这？(#`Д´)ﾉ',message='你确定你输入的是MusicID？')
             return
-        self.musicId = int(self.entry_idInput.get())
+        self.musicId = int(MusicID)
         if config['official_api']:
             self.data = getMusic_off(self.musicId)
         else:
             self.data = getMusic_tp(self.musicId)
-        if self.data == {}:
-            tk.messagebox.showinfo(title='=͟͟͞͞(꒪⌓꒪*)',message='没有找到呢。\n这可能是由于此ID对应的歌曲不存在，或者说这首歌曲没有滚动歌词。')
+        if 'error' in self.data:
+            if not ignoreError:
+                if self.data['code'] == -1:
+                    tk.messagebox.showinfo(title='=͟͟͞͞(꒪⌓꒪*)',message='没有找到呢。\n这可能是由于此ID对应的歌曲不存在，或者说这首歌曲没有滚动歌词。')
+                else:
+                    tk.messagebox.showerror(title='=͟͟͞͞(꒪⌓꒪*)',message='Error：%s\n%s'%(self.data['code'],self.data['error']))
             return
         self.clear()
         self.label_text2['text'] = '《%s》（ID%s）'%(self.data['title'],self.musicId)
@@ -245,14 +271,40 @@ class MainWindow(object):
         self.button_savePathSel['state'] = 'normal'
         self.button_save['state'] = 'normal'
         self.setSctext(sctext=self.sctext_lyricShow,lock=True,text=self.data['lrc'])
+        if autoSave:
+            if not os.path.exists('./CMLD_AutoSave/'):
+                os.mkdir('./CMLD_AutoSave/')
+            path = './CMLD_AutoSave/'+replaceChr(self.data['singer']+' - '+self.data['title'])+'.lrc'.strip()
+            self.save(path,ignoreError=True)
 
-    def updateYiyan(self):
-        self.label_yiyan['text'] = json.loads(getData('v1.hitokoto.cn')['data'])["hitokoto"]
+    def updateYiyan(self,self_=None):
+        tmp = getData('v1.hitokoto.cn')
+        if 'error' in tmp:
+            tk.messagebox.showwarning(title='=͟͟͞͞(꒪⌓꒪*)',message='一言加载失败。')
+            return
+        self.label_yiyan['text'] = json.loads(tmp['data'])["hitokoto"]
 
     def search(self):
         self.button_search['state'] = 'disabled'
         searchWindow = SearchWindow()
+        self.batch(searchWindow.returnList)
         self.button_search['state'] = 'normal'
+
+    def batch(self,idList):
+        if len(idList) == 1:
+            self.getIt(idList[0])
+            return
+        elif len(idList) < 1:
+            return
+        self.clear()
+        self.button_execute['state'] = 'disabled'
+        for i in idList:
+            self.getIt(i,ignoreError=True,autoSave=True)
+            self.label_batchProcessShow['text'] = '批处理 进度%s/%s'%(idList.index(i)+1,len(idList))
+        self.label_batchProcessShow['text'] = ''
+        self.button_execute['state'] = 'normal'
+        if tk.messagebox.askyesno(title='ヽ(✿ﾟ▽ﾟ)ノ',message='完成！\n要打开输出目录吗？'):
+            os.system('explorer "%s"'%(os.path.abspath('./CMLD_AutoSave/')))
         
 
 class ConfigWindow(object):
@@ -313,10 +365,12 @@ class SearchWindow(object):
         self.entry_kwinput.bind('<Return>',self.search_clone)
         self.button_search = tk.Button(self.window,text='搜索',command=self.search)
         self.button_addtoline = tk.Button(self.window,text='添加选中项到准备区域\n----->',command=self.addToPrep)
-        self.frame_preview = tk.LabelFrame(self.window,text='Preparation')
-        self.libo_prev = tk.Listbox(self.frame_preview)
+        self.frame_preview = tk.LabelFrame(self.window,text='准备区域')
+        self.libo_prev = tk.Listbox(self.frame_preview,selectmode='extended',selectbackground='#66CCFF')
         self.button_remSelPre = tk.Button(self.frame_preview,text='移除选中项',command=self.removeSel)
         self.button_remAll = tk.Button(self.frame_preview,text='移除所有',command=lambda x=0:self.libo_prev.delete(0,'end'))
+        self.button_close = tk.Button(self.window,text='关闭',command=self.close)
+        self.button_connect = tk.Button(self.frame_preview,text='开始',command=self.connect)
 
         self.bar_tbscbar = tk.Scrollbar(self.window,orient='vertical')
         self.table = ttk.Treeview(self.window,show="headings",columns=("id","name","singer","album"),yscrollcommand=self.bar_tbscbar.set,height=20)
@@ -336,13 +390,14 @@ class SearchWindow(object):
         self.table.grid(column=0,row=1,columnspan=3)
         self.bar_tbscbar.grid(column=3,row=1,sticky='nw',ipady=190)
         self.button_addtoline.grid(column=2,row=2)
-        self.frame_preview.grid(column=4,row=1)
+        self.button_close.grid(column=0,row=2)
+        self.frame_preview.grid(column=4,row=1,ipady=100)
         self.libo_prev.grid(column=0,row=0,columnspan=2)
         self.button_remSelPre.grid(column=0,row=1)
         self.button_remAll.grid(column=1,row=1)
+        self.button_connect.grid(column=0,row=2,columnspan=2)
 
         self.returnList = []
-        self.preList = []
 
         self.window.mainloop()
 
@@ -377,6 +432,12 @@ class SearchWindow(object):
         if keyword == '':
             return
         sear_res = searchMusic(keyword)
+        if 'error' in sear_res:
+            if sear_res['code'] == -1:
+                tk.messagebox.showinfo(title='=͟͟͞͞(꒪⌓꒪*)',message='没有搜索结果。')
+            else:
+                tk.messagebox.showerror(title='=͟͟͞͞(꒪⌓꒪*)',message='Error：%s\n%s'%(sear_res['code'],sear_res['error']))
+            return
         ids = list(sear_res.keys())
         for i in ids:
             self.table.insert("","end",values=(str(i),sear_res[i]['name'],sear_res[i]['artists'],sear_res[i]['album']))
@@ -385,6 +446,14 @@ class SearchWindow(object):
 
     def search_clone(self,self_):#供bind调用的克隆函数
         self.search()
+
+    def connect(self):
+        content = self.libo_prev.get(0,'end')
+        if content == ():
+            return
+        self.returnList += content
+        self.close()
+        
         
 class Hta(object):
     def __init__(self):
