@@ -6,7 +6,9 @@ from tkinter import scrolledtext
 from urllib import request,parse
 import json,gzip,os,re,sys,_thread
 
-version = '1.2.0.20201220_alpha'
+#需要完善：Search函数
+
+version = '1.2.1.20201223_alpha'
 config = {'official_api':False,
           'yiyan':True}
 repChr = {'/':'／',
@@ -120,6 +122,7 @@ class MainWindow(object):
 
         self.entry_idInput = tk.Entry(self.window)
         self.label_text1 = tk.Label(self.window,text='MusicID:')
+        self.entry_idInput.bind("<Return>",self.getIt_clone)
         self.button_clearInput = tk.Button(self.window,text='清空',command=self.clear)
         self.button_execute = tk.Button(self.window,text='走你',command=self.getIt)
         self.label_text2 = tk.Label(self.window,text='')
@@ -133,7 +136,7 @@ class MainWindow(object):
         self.button_setting = tk.Button(self.window,text='设置',command=self.config)
         self.button_save = tk.Button(self.window,text='保存',state='disabled',command=self.save)
         self.button_exit = tk.Button(self.window,text='退出',command=self.close)
-        self.button_search = tk.Button(self.window,text='搜索...',command=self.search)
+        self.button_search = tk.Button(self.window,text='搜索(Alpha)',command=self.search)
         self.label_yiyan = tk.Label(self.window,text='')
 
         self.label_text1.grid(column=0,row=0)
@@ -217,6 +220,9 @@ class MainWindow(object):
         with open(path,'w+',encoding='utf-8') as f:
             f.write(content)
         tk.messagebox.showinfo(title='ヽ(✿ﾟ▽ﾟ)ノ',message='完成！')
+
+    def getIt_clone(self,self_):#供bind调用的克隆函数
+        self.getIt()
 
     def getIt(self):
         try:
@@ -304,10 +310,13 @@ class SearchWindow(object):
 
         self.label_text1 = tk.Label(self.window,text='关键词：')
         self.entry_kwinput = tk.Entry(self.window)
+        self.entry_kwinput.bind('<Return>',self.search_clone)
         self.button_search = tk.Button(self.window,text='搜索',command=self.search)
         self.button_addtoline = tk.Button(self.window,text='添加选中项到准备区域\n----->',command=self.addToPrep)
         self.frame_preview = tk.LabelFrame(self.window,text='Preparation')
-        self.libo_prev = tk.Listbox(self.frame_preview,selectmode='multple')
+        self.libo_prev = tk.Listbox(self.frame_preview)
+        self.button_remSelPre = tk.Button(self.frame_preview,text='移除选中项',command=self.removeSel)
+        self.button_remAll = tk.Button(self.frame_preview,text='移除所有',command=lambda x=0:self.libo_prev.delete(0,'end'))
 
         self.bar_tbscbar = tk.Scrollbar(self.window,orient='vertical')
         self.table = ttk.Treeview(self.window,show="headings",columns=("id","name","singer","album"),yscrollcommand=self.bar_tbscbar.set,height=20)
@@ -328,7 +337,9 @@ class SearchWindow(object):
         self.bar_tbscbar.grid(column=3,row=1,sticky='nw',ipady=190)
         self.button_addtoline.grid(column=2,row=2)
         self.frame_preview.grid(column=4,row=1)
-        self.libo_prev.grid(column=0,row=0)
+        self.libo_prev.grid(column=0,row=0,columnspan=2)
+        self.button_remSelPre.grid(column=0,row=1)
+        self.button_remAll.grid(column=1,row=1)
 
         self.returnList = []
         self.preList = []
@@ -339,6 +350,11 @@ class SearchWindow(object):
         self.window.quit()
         self.window.destroy()
 
+    def removeSel(self):
+        selection = self.libo_prev.curselection()
+        for index in selection:
+            self.libo_prev.delete(index)
+
     def setEntry(self,entry=None,lock=False,text=''):
         entry['state'] = 'normal'
         entry.delete(0,'end')
@@ -346,26 +362,15 @@ class SearchWindow(object):
         if lock:
             entry['state'] = 'disabled'
 
-    def loadImage(self,url,filename,callBackObj):
-        cacheDir = workDir+'/CMLD_Cache/'
-        if not os.path.exists(cacheDir):
-            os.mkdir(cacheDir)
-        try:
-            request.urlretrieve(url,cacheDir+filename)
-            callBackObj['file'] = cacheDir+filename
-        except:
-            if os.path.exists(cacheDir+filename):
-                callBackObj['file'] = cacheDir+filename
-
     def addToPrep(self):
         if self.table.selection() == ():
             return
         sel = []
         for item in self.table.selection():
             sel.append(self.table.item(item,"values"))
-        
         for item in sel:
-            self.libo_prev.insert('end',item[0])
+            if item[0] not in self.libo_prev.get(0,'end'):
+                self.libo_prev.insert('end',item[0])
         
     def search(self):
         keyword = self.entry_kwinput.get().strip()
@@ -375,7 +380,12 @@ class SearchWindow(object):
         ids = list(sear_res.keys())
         for i in ids:
             self.table.insert("","end",values=(str(i),sear_res[i]['name'],sear_res[i]['artists'],sear_res[i]['album']))
+            
+        self.setEntry(entry=self.entry_kwinput)
 
+    def search_clone(self,self_):#供bind调用的克隆函数
+        self.search()
+        
 class Hta(object):
     def __init__(self):
         pass
