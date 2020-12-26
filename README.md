@@ -6,7 +6,7 @@ CloudMusic Lyric Downloader
 
 使用多方API的缝合怪，使用Python编写，GUI是用Tkinter做的。
 
-只是单纯做着好玩~~，顺便自己用~~
+只是单纯做着好玩，顺便自己用
 
 **********
 
