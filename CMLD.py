@@ -6,9 +6,16 @@ from urllib import request,parse
 import json,gzip,os,re
 from sys import exit
 
-version = '1.0.0.20201206_beta'
-api = r'http://music.163.com/api/song/media?id={id}'
-mainurl = r'https://music.163.com/song?id={id}'
+version = '1.1.0.20201213_beta'
+config = {'official_api':False}
+repChr = {'/':'／',
+          '*':'＊',
+          ':':'：',
+          '\\':'＼',
+          '>':'＞',
+          '<':'＜',
+          '|':'｜',
+          '?':'？'}
 
 def getData(url,et=5):
     try:
@@ -38,40 +45,61 @@ def ungzip(data):
         pass
     return data
 
-def getInfo(data):
+def replaceChr(text):
+    tmp = list(repChr.keys())
+    for t in tmp:
+        text = text.replace(t,repChr[t])
+    return text
+
+def getMusic_tp(MusicID):
+    url = 'https://api.imjad.cn/cloudmusic/?type=lyric&id='+str(MusicID)
+    jsonData = json.loads(getData(url))
+    try:
+        lrcdata = jsonData['lrc']['lyric']
+    except:
+        return {}
+    
+    url = 'https://api.imjad.cn/cloudmusic/?type=detail&id='+str(MusicID)
+    jsonData = json.loads(getData(url))['songs'][0]
+    title = jsonData['name']
+    cover = jsonData['al']['picUrl']
+    tmp = jsonData['ar']
+    singer = []
+    for s in tmp:
+        singer.append(s['name'])
+    singer = ','.join(singer)
+
+    return {'title':title,'singer':singer,'lrc':lrcdata,'cover':cover}
+    
+def getMusic_off(MusicID):
+    lrcdata = json.loads(getData('http://music.163.com/api/song/media?id='+str(MusicID)))
+    if "lyric" not in lrcdata:
+        return {}
+    
+    data = getData('https://music.163.com/song?id='+str(MusicID))
     sign = r'<script type="application/ld+json">'
     i = data.find(sign) + len(sign)
     o = data.find(r'</script>',i)
-    return json.loads(data[i:o])
+    musinfo = json.loads(data[i:o])
 
-def getSinger(data):
     sign = r'<title>'
     i = data.find(sign) + len(sign)
     o = data.find('</title>',i)
     title = data[i:o]
-    tmp = title.split(' - ')
-    singer = tmp[-3]
-    return singer.replace('/',',')
-
-def removeDk(s):
-    if '（原曲' not in s:
-        return s
-    i = s.find('（原曲')
-    o = s.find('）',i) + 1
-    s = s.replace(s[i:o],'')
-    return s
+    tmp = title.split(' - ')[-3]
+    singer = tmp.replace('/',',')
     
-def getLyrics(MusicID):
-    lrcdata = json.loads(getData(api.replace(r'{id}',str(MusicID))))
-    if "lyric" not in lrcdata:
-        return {}
-    data = getData(mainurl.replace(r'{id}',str(MusicID)))
-    musinfo = getInfo(data)
-    singer = getSinger(data)
     title = musinfo['title']
-    return {'title':removeDk(title),'singer':singer,'info':musinfo,'lrc':lrcdata['lyric']}
+    cover = musinfo['images'][0]
 
-class GUI(object):
+    if '（原曲' in title:
+        i = title.find('（原曲')
+        o = title.find('）',i) + 1
+        title = title.replace(title[i:o],'')
+
+    return {'title':title,'singer':singer,'lrc':lrcdata['lyric'],'cover':cover}
+
+class MainWindow(object):
     def __init__(self):
         self.window = tk.Tk()
         self.window.title('CMLD GUI')
@@ -89,6 +117,7 @@ class GUI(object):
         self.entry_savePathShow = tk.Entry(self.window,text='',state='disabled')
         self.button_savePathSel = tk.Button(self.window,text='浏览',state='disabled',command=self.selectSavePath)
         self.button_help = tk.Button(self.window,text='帮助',command=self.showHelp)
+        self.button_setting = tk.Button(self.window,text='设置',command=self.config)
         self.button_save = tk.Button(self.window,text='保存',state='disabled',command=self.save)
         self.button_exit = tk.Button(self.window,text='退出',command=exit)
 
@@ -104,17 +133,21 @@ class GUI(object):
         self.entry_savePathShow.grid(column=1,row=5,sticky='w')
         self.button_savePathSel.grid(column=2,row=5,sticky='w')
         self.button_save.grid(column=3,row=5,sticky='w')
-        self.button_help.grid(column=2,row=6,columnspan=2)
-        self.button_exit.grid(column=0,row=6)
+        self.button_setting.grid(column=3,row=6,sticky='w')
+        self.button_help.grid(column=2,row=6,sticky='w')
+        self.button_exit.grid(column=0,row=6,sticky='w')
 
         self.window.mainloop()
 
     def showHelp(self):
-        tk.messagebox.showinfo(title='(⑅˃◡˂⑅)',message='网易云歌词下载器 v.%s'%version)
+        tk.messagebox.showinfo(title='(⑅˃◡˂⑅)',message='云音乐歌词下载器 v.%s'%version)
         tk.messagebox.showinfo(title='(⑅˃◡˂⑅)',message='在输入框中输入歌曲的MusicID进行查询\n比如495645135，切记不要直接复制网址哦')
         tk.messagebox.showinfo(title='(⑅˃◡˂⑅)',message='建议将歌词文件保存为与下载的音乐文件一致的文件名，便于播放器读取呢w')
         
-
+    def config(self):
+        configWindow = ConfigWindow()
+        del configWindow
+    
     def clear(self):
         self.setEntry(entry=self.entry_idInput)
         self.label_text2['text'] = ''
@@ -141,7 +174,7 @@ class GUI(object):
             sctext['state'] = 'disabled'
 
     def selectSavePath(self):
-        filename = self.data['singer']+' - '+self.data['title']
+        filename = replaceChr(self.data['singer']+' - '+self.data['title']).strip()
         file = tkinter.filedialog.asksaveasfilename(title='保存为',filetypes=[('lrc歌词文件','*.lrc')],defaultextension='.lrc',initialfile=filename)
         self.setEntry(entry=self.entry_savePathShow,lock=True,text=file)
 
@@ -169,7 +202,10 @@ class GUI(object):
             tk.messagebox.showinfo(title='啊这？(#`Д´)ﾉ',message='你确定你输入的是MusicID？')
             return
         self.musicId = int(self.entry_idInput.get())
-        self.data = getLyrics(self.musicId)
+        if config['official_api']:
+            self.data = getMusic_off(self.musicId)
+        else:
+            self.data = getMusic_tp(self.musicId)
         if self.data == {}:
             tk.messagebox.showinfo(title='=͟͟͞͞(꒪⌓꒪*)',message='没有找到呢。\n这可能是由于此ID对应的歌曲不存在，或者说这首歌曲没有滚动歌词。')
             return
@@ -180,5 +216,42 @@ class GUI(object):
         self.button_savePathSel['state'] = 'normal'
         self.button_save['state'] = 'normal'
         self.setSctext(sctext=self.sctext_lyricShow,lock=True,text=self.data['lrc'])
-        
-window = GUI()
+
+class ConfigWindow(object):
+    global config
+    def __init__(self):
+        self.window = tk.Tk()
+        self.window.resizable(height=False,width=False)
+        self.window.title('设置')
+
+        self.frame_apiConfig = tk.LabelFrame(self.window,text='API设置')
+        self.btn_offApi = tk.Button(self.frame_apiConfig,text='官方API',command=lambda x=0:self.changeAPI('official'))
+        self.btn_tpApi = tk.Button(self.frame_apiConfig,text='第三方API',command=lambda x=0:self.changeAPI('third_party'))
+        self.label_text1 = tk.Label(self.frame_apiConfig,text='（第三方API 由 AD\'s API 提供支持）\n注意：官方api反而可能有bug，因为是我自己研究的awa',justify='left')
+        self.label_apiModeShower = tk.Label(self.frame_apiConfig,text='模式：-')
+        self.btn_quit = tk.Button(self.window,text='完成',command=self.window.destroy)
+
+        self.frame_apiConfig.grid(column=0,row=0,columnspan=2,sticky='w')
+        self.btn_offApi.grid(column=0,row=0,sticky='w')
+        self.btn_tpApi.grid(column=0,row=1,sticky='w')
+        self.label_text1.grid(column=0,row=2,sticky='w')
+        self.label_apiModeShower.grid(column=0,row=3,sticky='w')
+        self.btn_quit.grid(column=1,row=1,sticky='w')
+
+        self.update()
+        self.window.mainloop()
+
+    def changeAPI(self,apimode):
+        if apimode == 'official':
+            config['official_api'] = True
+        elif apimode == 'third_party':
+            config['official_api'] = False
+        self.update()
+
+    def update(self):
+        if config['official_api']:
+            self.label_apiModeShower['text'] = '当前：官方API'
+        else:
+            self.label_apiModeShower['text'] = '当前：第三方API'
+
+window = MainWindow()
