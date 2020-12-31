@@ -4,13 +4,12 @@ import tkinter.filedialog
 from tkinter import ttk
 from tkinter import scrolledtext
 from urllib import request,parse
-import json,gzip,os,re,sys,_thread,time
+import json,gzip,os,sys,time
 
-#需要完善：Search函数
-
-version = '1.2.2.20201226_beta'
+version = '1.2.3.20201230_alpha'
 config = {'official_api':False,
-          'yiyan':True}
+          'yiyan':True,
+          'outfile_format':'{singer} - {song}'}
 repChr = {'/':'／',
           '*':'＊',
           ':':'：',
@@ -39,13 +38,6 @@ def getData(url,timeout=5,headers={"User-Agent":"Mozilla/5.0 (Windows NT 6.1; WO
         gz = False
     data = str(data.decode("utf-8"))
     return {'data':data,'gzip':gz,'code':code}
-    
-def ungzip(data):
-    try:
-        data = gzip.decompress(data)
-    except:
-        pass
-    return data
 
 def replaceChr(text):
     tmp = list(repChr.keys())
@@ -149,7 +141,6 @@ class MainWindow(object):
         self.button_save = tk.Button(self.window,text='保存',state='disabled',command=self.save)
         self.button_exit = tk.Button(self.window,text='退出',command=self.close)
         self.button_search = tk.Button(self.window,text='搜索',command=self.search)
-        self.label_batchProcessShow = tk.Label(self.window,text='')
         self.label_yiyan = tk.Label(self.window,text='')
         self.label_yiyan.bind('<Button-1>',self.updateYiyan)
 
@@ -169,7 +160,6 @@ class MainWindow(object):
         self.button_help.grid(column=2,row=6,sticky='w')
         self.button_exit.grid(column=0,row=6,sticky='w')
         self.button_search.grid(column=2,row=7,columnspan=2)
-        self.label_batchProcessShow.grid(column=1,row=7)
         self.label_yiyan.grid(column=0,row=8,sticky='w',columnspan=4)
 
         if config['yiyan']:
@@ -216,7 +206,7 @@ class MainWindow(object):
             sctext['state'] = 'disabled'
 
     def selectSavePath(self):
-        filename = replaceChr(self.data['singer']+' - '+self.data['title']).strip()
+        filename = self.makeFilename(self.data['singer'],self.data['title'])
         file = tkinter.filedialog.asksaveasfilename(title='保存为',filetypes=[('lrc歌词文件','*.lrc')],defaultextension='.lrc',initialfile=filename)
         self.setEntry(entry=self.entry_savePathShow,lock=True,text=file)
 
@@ -242,6 +232,12 @@ class MainWindow(object):
 
     def getIt_clone(self,self_):#供bind调用的克隆函数
         self.getIt()
+
+    def makeFilename(self,singer,title):
+        tmp = config['outfile_format'].replace('{singer}',singer)
+        tmp = tmp.replace('{song}',title)
+        filename = replaceChr(tmp).strip()
+        return filename
 
     def getIt(self,MusicID=None,ignoreError=False,autoSave=False):
         if MusicID == None:
@@ -274,7 +270,8 @@ class MainWindow(object):
         if autoSave:
             if not os.path.exists('./CMLD_AutoSave/'):
                 os.mkdir('./CMLD_AutoSave/')
-            path = './CMLD_AutoSave/'+replaceChr(self.data['singer']+' - '+self.data['title'])+'.lrc'.strip()
+            filename = self.makeFilename(self.data['singer'],self.data['title'])
+            path = './CMLD_AutoSave/'+filename
             self.save(path,ignoreError=True)
 
     def updateYiyan(self,self_=None):
@@ -296,15 +293,17 @@ class MainWindow(object):
             return
         elif len(idList) < 1:
             return
+        print('批处理正在运行')
         self.clear()
         self.button_execute['state'] = 'disabled'
         for i in idList:
             self.getIt(i,ignoreError=True,autoSave=True)
-            self.label_batchProcessShow['text'] = '批处理 进度%s/%s'%(idList.index(i)+1,len(idList))
-        self.label_batchProcessShow['text'] = ''
+            print('批处理 进度%s/%s'%(idList.index(i)+1,len(idList)))
         self.button_execute['state'] = 'normal'
-        if tk.messagebox.askyesno(title='ヽ(✿ﾟ▽ﾟ)ノ',message='完成！\n要打开输出目录吗？'):
+        self.clear()
+        if tk.messagebox.askyesno(title='ヽ(✿ﾟ▽ﾟ)ノ',message='完成：%s 个MusicID的获取\n如果没有你要的文件，则有可能发生了错误，或者这首歌没有歌词.\n要打开输出目录吗？'%len(idList)):
             os.system('explorer "%s"'%(os.path.abspath('./CMLD_AutoSave/')))
+        print('批处理已完成')
         
 
 class ConfigWindow(object):
@@ -315,40 +314,63 @@ class ConfigWindow(object):
         self.window.title('设置')
         #api设置
         self.frame_apiConfig = tk.LabelFrame(self.window,text='API设置')
-        self.btn_offApi = tk.Button(self.frame_apiConfig,text='官方API',command=lambda x=0:self.changeAPI('official'))
-        self.btn_tpApi = tk.Button(self.frame_apiConfig,text='第三方API',command=lambda x=0:self.changeAPI('third_party'))
+        self.btn_cgApi = tk.Button(self.frame_apiConfig,text='切换',command=self.changeAPI)
         self.label_apiModeShower = tk.Label(self.frame_apiConfig,text='当前：-')
         #关于
         self.frame_about = tk.LabelFrame(self.window,text='关于')
         self.label_about1 = tk.Label(self.frame_about,text='使用API：\n  云音乐官方API\n  AD\'s API\n  Hitokoto API',justify='left')
+        #输出文件名格式
+        self.frame_outFormat = tk.LabelFrame(self.window,text='输出文件名')
+        self.label_outFmShow = tk.Label(self.frame_outFormat,text='-')
+        self.button_fmSwitch = tk.Button(self.frame_outFormat,text='切换')
+        #一言
+        self.frame_yiyan = tk.LabelFrame(self.window,text='一言')
+        self.label_yyShow = tk.Label(self.frame_yiyan,text='-')
+        self.button_yySwitch = tk.Button(self.frame_yiyan,text='切换',command=self.changeYiyan)
         #完成按钮
         self.btn_quit = tk.Button(self.window,text='完成',command=self.close)
         #布局
         self.frame_apiConfig.grid(column=0,row=0)
-        self.btn_offApi.grid(column=0,row=0,sticky='w')
-        self.btn_tpApi.grid(column=0,row=1,sticky='w')
-        self.label_apiModeShower.grid(column=0,row=3)
+        self.btn_cgApi.grid(column=0,row=0,sticky='w')
+        self.label_apiModeShower.grid(column=0,row=1)
         self.btn_quit.grid(column=1,row=1,sticky='w')
         self.frame_about.grid(column=1,row=0)
         self.label_about1.grid(column=0,row=0)
+        self.frame_yiyan.grid(column=0,row=1)
+        self.label_yyShow.grid(column=0,row=0)
+        self.button_yySwitch.grid(column=1,row=0)
 
         self.update()
         self.window.protocol('WM_DELETE_WINDOW',self.close)
         self.window.mainloop()
 
-    def changeAPI(self,apimode):
-        if apimode == 'official':
-            config['official_api'] = True
-        elif apimode == 'third_party':
+    def changeAPI(self):
+        if config['official_api']:
             config['official_api'] = False
+        else:
+            config['official_api'] = True
         self.update()
+
+    def changeYiyan(self):
+        if config['yiyan']:
+            config['yiyan'] = False
+        else:
+            config['yiyan'] = True
+        self.update()
+
+    def changeFilename(self):
+        pass
 
     def update(self):
         if config['official_api']:
             self.label_apiModeShower['text'] = '当前：官方API'
         else:
             self.label_apiModeShower['text'] = '当前：第三方API'
-
+        if config['yiyan']:
+            self.label_yyShow['text'] = '开'
+        else:
+            self.label_yyShow['text'] = '关'
+            
     def close(self):
         self.window.quit()
         self.window.destroy()
@@ -460,5 +482,6 @@ class Hta(object):
         pass
         
 if __name__ == "__main__":
+    print('如果你看到了这行字，说明我还在运行~')
     window = MainWindow()
     sys.exit(0)
