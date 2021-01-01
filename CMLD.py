@@ -5,7 +5,7 @@ from tkinter import ttk,scrolledtext
 from urllib import request,parse
 import json,gzip,os,sys,time
 
-version = '1.3.0.20210101_beta'
+version = '1.3.1.20210101_beta'
 config = {'yiyan':True,
           'outfile_format':'{singer} - {song}',
           'singer_sepchar':','}
@@ -76,7 +76,7 @@ def getMusic(MusicID):
     url = 'https://api.imjad.cn/cloudmusic/?type=detail&id='+str(MusicID)
     data = getData(url)
     if data['data'] == None:
-        return {'error':tmp['error'],'code':tmp['code']}
+        return {'error':data['error'],'code':data['code']}
     jsonData = json.loads(data['data'])['songs'][0]
     title = jsonData['name']
     cover = jsonData['al']['picUrl']
@@ -245,7 +245,8 @@ class MainWindow(object):
                 '在输入框中输入歌曲的MusicID进行查询\n比如495645135，切记不要直接复制网址哦',
                 '建议将歌词文件保存为与下载的音乐文件一致的文件名，\n以便于播放器读取呢',
                 '歌词文件的文件名的格式是可以在设置中进行改动的哦',
-                '更多功能详见"拓展功能"区域.']
+                '更多功能详见"拓展功能"区域.',
+                '如果想要下载无版权音乐，可以走代理↓\nhttps://wy.ydlrqx.com/proxy.pac']
         for t in text:
             tk.messagebox.showinfo(title='(⑅˃◡˂⑅)',message=t)
         
@@ -320,7 +321,7 @@ class MainWindow(object):
             int(MusicID)
         except:
             if not ignoreError:
-                tk.messagebox.showwarnig(title='∑(✘Д✘๑ ) ',message='你确定你输入的是MusicID？')
+                tk.messagebox.showwarning(title='∑(✘Д✘๑ ) ',message='你确定你输入的是MusicID？')
             return
         self.musicId = int(MusicID)
         self.data = getMusic(self.musicId)
