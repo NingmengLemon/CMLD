@@ -1,24 +1,31 @@
 import tkinter as tk
 import tkinter.messagebox
 import tkinter.filedialog
-from tkinter import ttk
-from tkinter import scrolledtext
+from tkinter import ttk,scrolledtext
 from urllib import request,parse
 import json,gzip,os,sys,time
 
-version = '1.2.3.20201230_alpha'
-config = {'official_api':False,
-          'yiyan':True,
-          'outfile_format':'{singer} - {song}'}
-repChr = {'/':'／',
-          '*':'＊',
-          ':':'：',
-          '\\':'＼',
-          '>':'＞',
-          '<':'＜',
-          '|':'｜',
-          '?':'？'}
+version = '1.3.0.20210101_beta'
+config = {'yiyan':True,
+          'outfile_format':'{singer} - {song}',
+          'singer_sepchar':','}
+
 workDir = os.getcwd()
+    
+#code解释:
+#0     内部错误
+#-1    没有数据
+#其他  http状态码
+
+def updateConfigFile(path=workDir+'\\CMLD_config.json',mode='load'):#mode = release / load
+    global config
+    if mode == 'load':
+        if os.path.exists(path):
+            config = json.load(open(path,'r'))
+        else:
+            json.dump(config,open(path,'w+',encoding='utf-8'))
+    elif mode == 'release':
+        json.dump(config,open(path,'w+',encoding='utf-8'))
 
 def getData(url,timeout=5,headers={"User-Agent":"Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.1"},dict={}):
     if url[:8] != "https://" and url[:7] != "http://":
@@ -30,6 +37,10 @@ def getData(url,timeout=5,headers={"User-Agent":"Mozilla/5.0 (Windows NT 6.1; WO
         data = response.read()
         code = response.getcode()
     except Exception as e:
+        try:
+            code = response.getcode()
+        except:
+            code = 0
         return {'data':None,'code':0,'error':str(e)}
     try:
         data = gzip.decompress(data)
@@ -39,13 +50,45 @@ def getData(url,timeout=5,headers={"User-Agent":"Mozilla/5.0 (Windows NT 6.1; WO
     data = str(data.decode("utf-8"))
     return {'data':data,'gzip':gz,'code':code}
 
-def replaceChr(text):
+def replaceChr(text):#处理非法字符
+    repChr = {'/':'／',
+              '*':'＊',
+              ':':'：',
+              '\\':'＼',
+              '>':'＞',
+              '<':'＜',
+              '|':'｜',
+              '?':'？'}
     tmp = list(repChr.keys())
     for t in tmp:
         text = text.replace(t,repChr[t])
     return text
 
-def getMusic_tp(MusicID):
+def getMusic(MusicID):
+    tmp = getData('http://music.163.com/api/song/media?id='+str(MusicID))
+    if tmp['data'] == None:
+        return {'error':tmp['error'],'code':tmp['code']}
+    lrcdata = json.loads(tmp['data'])
+    if "lyric" not in lrcdata:
+        return {'error':'No Lyrics.','code':-1}
+    lrcdata = lrcdata['lyric'].strip()
+
+    url = 'https://api.imjad.cn/cloudmusic/?type=detail&id='+str(MusicID)
+    data = getData(url)
+    if data['data'] == None:
+        return {'error':tmp['error'],'code':tmp['code']}
+    jsonData = json.loads(data['data'])['songs'][0]
+    title = jsonData['name']
+    cover = jsonData['al']['picUrl']
+    tmp = jsonData['ar']
+    singer = []
+    for s in tmp:
+        singer.append(s['name'])
+    singer = config['singer_sepchar'].join(singer)
+
+    return {'title':title,'singer':singer,'lrc':lrcdata,'cover':cover}
+
+def getMusic_thirdparty_spare(MusicID):#备用
     url = 'https://api.imjad.cn/cloudmusic/?type=lyric&id='+str(MusicID)
     tmp = getData(url)
     if tmp['data'] == None:
@@ -57,24 +100,28 @@ def getMusic_tp(MusicID):
         return {'error':'No Lyrics.','code':-1}
     
     url = 'https://api.imjad.cn/cloudmusic/?type=detail&id='+str(MusicID)
-    jsonData = json.loads(getData(url)['data'])['songs'][0]
+    data = getData(url)
+    if data['data'] == None:
+        return {'error':tmp['error'],'code':tmp['code']}
+    jsonData = json.loads(data['data'])['songs'][0]
     title = jsonData['name']
     cover = jsonData['al']['picUrl']
     tmp = jsonData['ar']
     singer = []
     for s in tmp:
         singer.append(s['name'])
-    singer = ','.join(singer)
+    singer = config['singer_sepchar'].join(singer)
 
     return {'title':title,'singer':singer,'lrc':lrcdata,'cover':cover}
     
-def getMusic_off(MusicID):
+def getMusic_official_spare(MusicID):#备用
     tmp = getData('http://music.163.com/api/song/media?id='+str(MusicID))
     if tmp['data'] == None:
         return {'error':tmp['error'],'code':tmp['code']}
     lrcdata = json.loads(tmp['data'])
     if "lyric" not in lrcdata:
         return {'error':'No Lyrics.','code':-1}
+    lrcdata = lrcdata['lyric']
     
     data = getData('https://music.163.com/song?id='+str(MusicID))['data']
     sign = r'<script type="application/ld+json">'
@@ -114,18 +161,36 @@ def searchMusic(keyword):
         for i in obj['artists']:
             ar.append(i['name'])
         ar = ','.join(ar)
-        retData[obj['id']] = {'name':obj['name'],'artists':ar,'album':obj['album']['name']}
+        retData[obj['id']] = {'id':obj['id'],'name':obj['name'],'artists':ar,'album':obj['album']['name']}
+    return retData
+
+def getAlbum(albumId):
+    url = 'https://api.imjad.cn/cloudmusic/?type=album&id='+str(albumId)
+    tmp = getData(url)
+    if tmp['data'] == None:
+        return {'error':tmp['error'],'code':tmp['code']}
+    try:
+        tmpdata = json.loads(tmp['data'])['songs']
+    except:
+        return {'error':'No Album.','code':-1}
+    retData = {}
+    for obj in tmpdata:
+        ar = []
+        for i in obj['ar']:
+            ar.append(i['name'])
+        ar = ','.join(ar)
+        retData[obj['id']] = {'id':obj['id'],'name':obj['name'],'artists':ar,'album':obj['al']['name']}
     return retData
 
 class MainWindow(object):
     def __init__(self):
         self.window = tk.Tk()
-        self.window.title('CMLD GUI')
+        self.window.title('CMLD主窗口')
         self.window.resizable(height=False,width=False)
         self.window.protocol('WM_DELETE_WINDOW',self.close)
 
         self.entry_idInput = tk.Entry(self.window)
-        self.label_text1 = tk.Label(self.window,text='MusicID:')
+        self.label_text1 = tk.Label(self.window,text='MusicID: ')
         self.entry_idInput.bind("<Return>",self.getIt_clone)
         self.button_clearInput = tk.Button(self.window,text='清空',command=self.clear)
         self.button_execute = tk.Button(self.window,text='走你',command=self.getIt)
@@ -140,9 +205,12 @@ class MainWindow(object):
         self.button_setting = tk.Button(self.window,text='设置',command=self.config)
         self.button_save = tk.Button(self.window,text='保存',state='disabled',command=self.save)
         self.button_exit = tk.Button(self.window,text='退出',command=self.close)
-        self.button_search = tk.Button(self.window,text='搜索',command=self.search)
+        self.frame_extraFunc = tk.LabelFrame(self.window,text='拓展功能')
+        self.button_search = tk.Button(self.frame_extraFunc,text='搜索歌曲',command=self.search)
+        self.button_getAlbum = tk.Button(self.frame_extraFunc,text='解析专辑',command=self.album)
         self.label_yiyan = tk.Label(self.window,text='')
         self.label_yiyan.bind('<Button-1>',self.updateYiyan)
+        
 
         self.label_text1.grid(column=0,row=0)
         self.entry_idInput.grid(column=1,row=0)
@@ -159,7 +227,9 @@ class MainWindow(object):
         self.button_setting.grid(column=3,row=6,sticky='w')
         self.button_help.grid(column=2,row=6,sticky='w')
         self.button_exit.grid(column=0,row=6,sticky='w')
-        self.button_search.grid(column=2,row=7,columnspan=2)
+        self.frame_extraFunc.grid(column=0,row=7,columnspan=4,sticky='w',ipadx=100)
+        self.button_search.grid(column=0,row=0,sticky='w')
+        self.button_getAlbum.grid(column=1,row=0,sticky='w')
         self.label_yiyan.grid(column=0,row=8,sticky='w',columnspan=4)
 
         if config['yiyan']:
@@ -171,9 +241,13 @@ class MainWindow(object):
         self.window.destroy()
 
     def showHelp(self):
-        tk.messagebox.showinfo(title='(⑅˃◡˂⑅)',message='云音乐歌词下载器 v.%s'%version)
-        tk.messagebox.showinfo(title='(⑅˃◡˂⑅)',message='在输入框中输入歌曲的MusicID进行查询\n比如495645135，切记不要直接复制网址哦')
-        tk.messagebox.showinfo(title='(⑅˃◡˂⑅)',message='建议将歌词文件保存为与下载的音乐文件一致的文件名，便于播放器读取呢w')
+        text = ['云音乐歌词下载器 v.%s'%version,
+                '在输入框中输入歌曲的MusicID进行查询\n比如495645135，切记不要直接复制网址哦',
+                '建议将歌词文件保存为与下载的音乐文件一致的文件名，\n以便于播放器读取呢',
+                '歌词文件的文件名的格式是可以在设置中进行改动的哦',
+                '更多功能详见"拓展功能"区域.']
+        for t in text:
+            tk.messagebox.showinfo(title='(⑅˃◡˂⑅)',message=t)
         
     def config(self):
         self.button_setting['state'] = 'disabled'
@@ -246,19 +320,16 @@ class MainWindow(object):
             int(MusicID)
         except:
             if not ignoreError:
-                tk.messagebox.showinfo(title='啊这？(#`Д´)ﾉ',message='你确定你输入的是MusicID？')
+                tk.messagebox.showwarnig(title='∑(✘Д✘๑ ) ',message='你确定你输入的是MusicID？')
             return
         self.musicId = int(MusicID)
-        if config['official_api']:
-            self.data = getMusic_off(self.musicId)
-        else:
-            self.data = getMusic_tp(self.musicId)
+        self.data = getMusic(self.musicId)
         if 'error' in self.data:
             if not ignoreError:
                 if self.data['code'] == -1:
                     tk.messagebox.showinfo(title='=͟͟͞͞(꒪⌓꒪*)',message='没有找到呢。\n这可能是由于此ID对应的歌曲不存在，或者说这首歌曲没有滚动歌词。')
                 else:
-                    tk.messagebox.showerror(title='=͟͟͞͞(꒪⌓꒪*)',message='Error：%s\n%s'%(self.data['code'],self.data['error']))
+                    tk.messagebox.showerror(title='=͟͟͞͞(꒪⌓꒪*)',message='Error:%s\n%s'%(self.data['code'],self.data['error']))
             return
         self.clear()
         self.label_text2['text'] = '《%s》（ID%s）'%(self.data['title'],self.musicId)
@@ -270,7 +341,7 @@ class MainWindow(object):
         if autoSave:
             if not os.path.exists('./CMLD_AutoSave/'):
                 os.mkdir('./CMLD_AutoSave/')
-            filename = self.makeFilename(self.data['singer'],self.data['title'])
+            filename = self.makeFilename(self.data['singer'],self.data['title'])+'.lrc'
             path = './CMLD_AutoSave/'+filename
             self.save(path,ignoreError=True)
 
@@ -286,6 +357,12 @@ class MainWindow(object):
         searchWindow = SearchWindow()
         self.batch(searchWindow.returnList)
         self.button_search['state'] = 'normal'
+
+    def album(self):
+        self.button_getAlbum['state'] = 'disabled'
+        albumWindow = AlbumWindow()
+        self.batch(albumWindow.returnList)
+        self.button_getAlbum['state'] = 'normal'
 
     def batch(self,idList):
         if len(idList) == 1:
@@ -312,44 +389,48 @@ class ConfigWindow(object):
         self.window = tk.Tk()
         self.window.resizable(height=False,width=False)
         self.window.title('设置')
-        #api设置
-        self.frame_apiConfig = tk.LabelFrame(self.window,text='API设置')
-        self.btn_cgApi = tk.Button(self.frame_apiConfig,text='切换',command=self.changeAPI)
-        self.label_apiModeShower = tk.Label(self.frame_apiConfig,text='当前：-')
         #关于
         self.frame_about = tk.LabelFrame(self.window,text='关于')
         self.label_about1 = tk.Label(self.frame_about,text='使用API：\n  云音乐官方API\n  AD\'s API\n  Hitokoto API',justify='left')
         #输出文件名格式
         self.frame_outFormat = tk.LabelFrame(self.window,text='输出文件名')
         self.label_outFmShow = tk.Label(self.frame_outFormat,text='-')
-        self.button_fmSwitch = tk.Button(self.frame_outFormat,text='切换')
+        self.button_fmSwitch = tk.Button(self.frame_outFormat,text='切换',command=self.changeFilename)
         #一言
         self.frame_yiyan = tk.LabelFrame(self.window,text='一言')
         self.label_yyShow = tk.Label(self.frame_yiyan,text='-')
         self.button_yySwitch = tk.Button(self.frame_yiyan,text='切换',command=self.changeYiyan)
+        #歌手分割字符
+        self.frame_singerSepchar = tk.LabelFrame(self.window,text='歌手分割字符')
+        self.label_sscText = tk.Label(self.frame_singerSepchar,text='当前：')
+        self.label_sscShow = tk.Label(self.frame_singerSepchar,text='-',bg='#acfff1',width=5)
+        self.entry_sscInput = tk.Entry(self.frame_singerSepchar,width=5)
+        self.button_sscUse = tk.Button(self.frame_singerSepchar,text='应用',command=self.changeSepchar)
         #完成按钮
         self.btn_quit = tk.Button(self.window,text='完成',command=self.close)
         #布局
-        self.frame_apiConfig.grid(column=0,row=0)
-        self.btn_cgApi.grid(column=0,row=0,sticky='w')
-        self.label_apiModeShower.grid(column=0,row=1)
-        self.btn_quit.grid(column=1,row=1,sticky='w')
-        self.frame_about.grid(column=1,row=0)
+        self.frame_about.grid(column=0,row=0,columnspan=3)
         self.label_about1.grid(column=0,row=0)
         self.frame_yiyan.grid(column=0,row=1)
         self.label_yyShow.grid(column=0,row=0)
         self.button_yySwitch.grid(column=1,row=0)
+        self.frame_outFormat.grid(column=1,row=1)
+        self.label_outFmShow.grid(column=0,row=0)
+        self.button_fmSwitch.grid(column=0,row=1)
+        self.frame_singerSepchar.grid(column=2,row=1)
+        self.label_sscText.grid(column=0,row=0)
+        self.label_sscShow.grid(column=1,row=0)
+        self.entry_sscInput.grid(column=0,row=1)
+        self.button_sscUse.grid(column=1,row=1)
+
+        self.btn_quit.grid(column=0,row=2,sticky='w')
+
+        self.InsideOutFormat = ['{singer} - {song}','{song} - {singer}','{song}']
+        self.outFormatIndex = 0
 
         self.update()
         self.window.protocol('WM_DELETE_WINDOW',self.close)
         self.window.mainloop()
-
-    def changeAPI(self):
-        if config['official_api']:
-            config['official_api'] = False
-        else:
-            config['official_api'] = True
-        self.update()
 
     def changeYiyan(self):
         if config['yiyan']:
@@ -359,19 +440,35 @@ class ConfigWindow(object):
         self.update()
 
     def changeFilename(self):
-        pass
+        self.outFormatIndex = (self.outFormatIndex+1)%(len(self.InsideOutFormat))
+        config['outfile_format'] = self.InsideOutFormat[self.outFormatIndex]
+        self.update()
+
+    def changeSepchar(self):
+        spc = self.entry_sscInput.get()
+        if spc == '':
+            return
+        config['singer_sepchar'] = spc
+        self.setEntry(entry=self.entry_sscInput)
+        self.update()
 
     def update(self):
-        if config['official_api']:
-            self.label_apiModeShower['text'] = '当前：官方API'
-        else:
-            self.label_apiModeShower['text'] = '当前：第三方API'
         if config['yiyan']:
             self.label_yyShow['text'] = '开'
         else:
             self.label_yyShow['text'] = '关'
+        self.label_outFmShow['text'] = config['outfile_format']
+        self.label_sscShow['text'] = config['singer_sepchar']
+
+    def setEntry(self,entry=None,lock=False,text=''):
+        entry['state'] = 'normal'
+        entry.delete(0,'end')
+        entry.insert('end',text)
+        if lock:
+            entry['state'] = 'disabled'
             
     def close(self):
+        updateConfigFile(mode='release')
         self.window.quit()
         self.window.destroy()
 
@@ -458,9 +555,11 @@ class SearchWindow(object):
             if sear_res['code'] == -1:
                 tk.messagebox.showinfo(title='=͟͟͞͞(꒪⌓꒪*)',message='没有搜索结果。')
             else:
-                tk.messagebox.showerror(title='=͟͟͞͞(꒪⌓꒪*)',message='Error：%s\n%s'%(sear_res['code'],sear_res['error']))
+                tk.messagebox.showerror(title='=͟͟͞͞(꒪⌓꒪*)',message='Error:%s\n%s'%(sear_res['code'],sear_res['error']))
             return
         ids = list(sear_res.keys())
+        for i in self.table.get_children():
+            self.table.delete(i)
         for i in ids:
             self.table.insert("","end",values=(str(i),sear_res[i]['name'],sear_res[i]['artists'],sear_res[i]['album']))
             
@@ -475,13 +574,106 @@ class SearchWindow(object):
             return
         self.returnList += content
         self.close()
-        
-        
-class Hta(object):
+
+class AlbumWindow(object):
     def __init__(self):
-        pass
+        self.window = tk.Tk()
+        self.window.resizable(height=False,width=False)
+        self.window.title('专辑解析')
+        self.window.protocol('WM_DELETE_WINDOW',self.close)
+
+        self.label_text1 = tk.Label(self.window,text='专辑ID: ')
+        self.entry_idInput = tk.Entry(self.window)
+        self.entry_idInput.bind('<Return>',self.getList_clone)
+        self.button_start = tk.Button(self.window,text='走你',command=self.getList)
+        self.label_text2 = tk.Label(self.window,text='')
+
+        self.bar_tbscbar = tk.Scrollbar(self.window,orient='vertical')
+        self.table = ttk.Treeview(self.window,show="headings",columns=("id","name","singer"),yscrollcommand=self.bar_tbscbar.set,height=20)
+        self.bar_tbscbar['command'] = self.table.yview
+        self.table.column("id", width=100)
+        self.table.column("name", width=200)
+        self.table.column("singer", width=150)
+        self.table.heading("id", text="MusicID")
+        self.table.heading("name", text="曲名")
+        self.table.heading("singer", text="歌手")
+
+        self.button_quit = tk.Button(self.window,text='关闭',command=self.close)
+        self.button_getAll = tk.Button(self.window,text='获取全部',command=self.connect_all)
+        self.button_getSel = tk.Button(self.window,text='获取选中',command=self.connect_selected)
+
+        self.label_text1.grid(column=0,row=0,sticky='e')
+        self.entry_idInput.grid(column=1,row=0,sticky='w')
+        self.button_start.grid(column=2,row=0,sticky='w')
+        self.label_text2.grid(column=0,row=1,sticky='w',columnspan=3)
+        self.table.grid(column=0,row=2,columnspan=3)
+        self.bar_tbscbar.grid(column=3,row=2,sticky='w',ipady=190)
+        self.button_quit.grid(column=0,row=3,sticky='w')
+        self.button_getAll.grid(column=1,row=3,sticky='e')
+        self.button_getSel.grid(column=2,row=3,sticky='e')
+
+        self.returnList = []
+
+        self.window.mainloop()
+
+    def close(self):
+        self.window.quit()
+        self.window.destroy()
+
+    def setEntry(self,entry=None,lock=False,text=''):
+        entry['state'] = 'normal'
+        entry.delete(0,'end')
+        entry.insert('end',text)
+        if lock:
+            entry['state'] = 'disabled'
+
+    def getList(self,albumId=None):
+        if albumId == None:
+            albumId = self.entry_idInput.get().strip()
+        try:
+            albumId = int(albumId)
+        except:
+            tk.messagebox.showwarning(title='∑(✘Д✘๑ ) ',message='你输入的是个什么东西嘛，重来！')
+            return
+        data = getAlbum(albumId)
+        if 'error' in data:
+            if data['code'] == -1:
+                tk.messagebox.showinfo(title='=͟͟͞͞(꒪⌓꒪*)',message='专辑不存在.')
+            else:
+                tk.messagebox.showerror(title='=͟͟͞͞(꒪⌓꒪*)',message='Error:%s\n%s'%(data['code'],data['error']))
+            return
+        ids = list(data.keys())
+        for i in self.table.get_children():
+            self.table.delete(i)
+        for i in ids:
+            self.table.insert("","end",values=(str(i),data[i]['name'],data[i]['artists']))
+        self.label_text2['text'] = '《%s》'%data[ids[0]]['album']
+        self.setEntry(entry=self.entry_idInput)
         
+    def getList_clone(self,self_):
+        self.getList()
+
+    def connect_selected(self):
+        if self.table.selection() == ():
+            return
+        sel = []
+        for item in self.table.selection():
+            sel.append(self.table.item(item,"values")[0])
+        self.returnList = sel
+        self.close()
+
+    def connect_all(self):
+        tmp = []
+        for i in self.table.get_children():
+            tmp.append(self.table.item(i,'values')[0])
+        if tmp == []:
+            return
+        self.returnList = tmp
+        self.close()
+        
+
 if __name__ == "__main__":
-    print('如果你看到了这行字，说明我还在运行~')
+    print('如果你看到了这行字，说明我还在运行_(:3 ⌒ﾞ)_')
+    updateConfigFile(mode='load')
     window = MainWindow()
     sys.exit(0)
