@@ -5,10 +5,11 @@ from tkinter import ttk,scrolledtext
 from urllib import request,parse
 import json,gzip,os,sys,time
 
-version = '1.3.1.20210101_beta'
+version = '1.3.2.20210102_beta'
 config = {'yiyan':True,
           'outfile_format':'{singer} - {song}',
-          'singer_sepchar':','}
+          'singer_sepchar':',',
+          'encoding':'MBCS'}
 
 workDir = os.getcwd()
     
@@ -211,7 +212,6 @@ class MainWindow(object):
         self.label_yiyan = tk.Label(self.window,text='')
         self.label_yiyan.bind('<Button-1>',self.updateYiyan)
         
-
         self.label_text1.grid(column=0,row=0)
         self.entry_idInput.grid(column=1,row=0)
         self.button_clearInput.grid(column=2,row=0)
@@ -241,14 +241,14 @@ class MainWindow(object):
         self.window.destroy()
 
     def showHelp(self):
-        text = ['云音乐歌词下载器 v.%s'%version,
-                '在输入框中输入歌曲的MusicID进行查询\n比如495645135，切记不要直接复制网址哦',
-                '建议将歌词文件保存为与下载的音乐文件一致的文件名，\n以便于播放器读取呢',
-                '歌词文件的文件名的格式是可以在设置中进行改动的哦',
-                '更多功能详见"拓展功能"区域.',
-                '如果想要下载无版权音乐，可以走代理↓\nhttps://wy.ydlrqx.com/proxy.pac']
-        for t in text:
-            tk.messagebox.showinfo(title='(⑅˃◡˂⑅)',message=t)
+        text = '云音乐歌词下载器 v.%s'%(version)+\
+                '\n在输入框中输入歌曲的MusicID进行查询，切记不要直接复制网址.'+\
+                '\n建议将歌词文件保存为与下载的音乐文件一致的文件名，以便于播放器读取.'+\
+                '\n歌词文件的文件名的格式是可以在设置中进行改动的.'+\
+                '\n歌词文件的编码也是可以在设置中进行改动的.'+\
+                '\n更多功能详见"拓展功能"区域.'+\
+                '\n注意：便携设备的编码通常为MBCS或UTF-8.'
+        tk.messagebox.showinfo(title='(⑅˃◡˂⑅)',message=text)
         
     def config(self):
         self.button_setting['state'] = 'disabled'
@@ -300,8 +300,17 @@ class MainWindow(object):
                     self.setEntry(entry=self.entry_idInput,text=str(self.musicId))
                     self.getIt()
             return
-        with open(path,'w+',encoding='utf-8') as f:
-            f.write(content)
+        try:
+            with open(path,'w+',encoding=config['encoding']) as f:
+                f.write(content)
+        except:
+            try:
+                with open(path,'w+',encoding='utf-8') as f:
+                    f.write(content)
+            except Exception as e:
+                if not ignoreError:
+                    tk.messagebox.askyesno(title='｡ﾟヽ(ﾟ´Д`)ﾉﾟ｡',message='写入失败！')
+                return
         if not ignoreError:
             tk.messagebox.showinfo(title='ヽ(✿ﾟ▽ﾟ)ノ',message='完成！')
 
@@ -407,6 +416,10 @@ class ConfigWindow(object):
         self.label_sscShow = tk.Label(self.frame_singerSepchar,text='-',bg='#acfff1',width=5)
         self.entry_sscInput = tk.Entry(self.frame_singerSepchar,width=5)
         self.button_sscUse = tk.Button(self.frame_singerSepchar,text='应用',command=self.changeSepchar)
+        #编码
+        self.frame_encode = tk.LabelFrame(self.window,text='优先编码')
+        self.label_encShow = tk.Label(self.frame_encode,text='当前：-')
+        self.button_encSwitch = tk.Button(self.frame_encode,text='切换',command=self.changeEncoding)
         #完成按钮
         self.btn_quit = tk.Button(self.window,text='完成',command=self.close)
         #布局
@@ -423,11 +436,16 @@ class ConfigWindow(object):
         self.label_sscShow.grid(column=1,row=0)
         self.entry_sscInput.grid(column=0,row=1)
         self.button_sscUse.grid(column=1,row=1)
+        self.frame_encode.grid(column=0,row=2)
+        self.label_encShow.grid(column=0,row=0)
+        self.button_encSwitch.grid(column=0,row=1)
 
-        self.btn_quit.grid(column=0,row=2,sticky='w')
+        self.btn_quit.grid(column=0,row=3,sticky='w')
 
         self.InsideOutFormat = ['{singer} - {song}','{song} - {singer}','{song}']
-        self.outFormatIndex = 0
+        self.encodeMethod = ['UTF-8','MBCS','GBK']
+        self.outFormatIndex = self.InsideOutFormat.index(config['outfile_format'])
+        self.emIndex = self.encodeMethod.index(config['encoding'])
 
         self.update()
         self.window.protocol('WM_DELETE_WINDOW',self.close)
@@ -453,6 +471,11 @@ class ConfigWindow(object):
         self.setEntry(entry=self.entry_sscInput)
         self.update()
 
+    def changeEncoding(self):
+        self.emIndex = (self.emIndex+1)%(len(self.encodeMethod))
+        config['encoding'] = self.encodeMethod[self.emIndex]
+        self.update()
+
     def update(self):
         if config['yiyan']:
             self.label_yyShow['text'] = '开'
@@ -460,6 +483,7 @@ class ConfigWindow(object):
             self.label_yyShow['text'] = '关'
         self.label_outFmShow['text'] = config['outfile_format']
         self.label_sscShow['text'] = config['singer_sepchar']
+        self.label_encShow['text'] = '当前：'+config['encoding']
 
     def setEntry(self,entry=None,lock=False,text=''):
         entry['state'] = 'normal'
