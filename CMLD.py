@@ -5,18 +5,23 @@ from tkinter import ttk,scrolledtext
 from urllib import request,parse
 import json,gzip,os,sys,time
 
-version = '1.3.2.20210102_beta'
+version = '1.4.0.20210103_beta'
 config = {'yiyan':True,
           'outfile_format':'{singer} - {song}',
           'singer_sepchar':',',
-          'encoding':'MBCS'}
+          'encoding':'MBCS',
+          'batch_pause':3,
+          'trans':True}
 
 workDir = os.getcwd()
     
 #code解释:
 #0     内部错误
-#-1    没有数据
+#-1    没有歌词
 #其他  http状态码
+
+#https://github.com/a632079/teng-koa/blob/master/netease.md
+#https://api.imjad.cn/cloudmusic.md
 
 def updateConfigFile(path=workDir+'\\CMLD_config.json',mode='load'):#mode = release / load
     global config
@@ -66,86 +71,25 @@ def replaceChr(text):#处理非法字符
     return text
 
 def getMusic(MusicID):
-    tmp = getData('http://music.163.com/api/song/media?id='+str(MusicID))
+    tmp = getData('https://v1.hitokoto.cn/nm/summary/%s?lyric=true&quick=true'%MusicID)
     if tmp['data'] == None:
         return {'error':tmp['error'],'code':tmp['code']}
-    lrcdata = json.loads(tmp['data'])
-    if "lyric" not in lrcdata:
-        return {'error':'No Lyrics.','code':-1}
-    lrcdata = lrcdata['lyric'].strip()
+    tmp = json.loads(tmp['data'])[str(MusicID)]
+    if tmp['name'] == '获取信息失败':
+        return {'error':'No Song.','code':-1}
+    if tmp['lyric']['base'] == '[00:00.00] 纯音乐，敬请聆听。\n':
+        lrcdata = None
+        lrctrans = None
+    else:
+        lrcdata = tmp['lyric']['base']
+        lrctrans = tmp['lyric']['translate']
+    cover = tmp['album']['picture'].split('?')[0]
+    album = tmp['album']['id']
+    singer = config['singer_sepchar'].join(tmp['artists'])
+    title = tmp['name']
+    redir = tmp['url']
 
-    url = 'https://api.imjad.cn/cloudmusic/?type=detail&id='+str(MusicID)
-    data = getData(url)
-    if data['data'] == None:
-        return {'error':data['error'],'code':data['code']}
-    jsonData = json.loads(data['data'])['songs'][0]
-    title = jsonData['name']
-    cover = jsonData['al']['picUrl']
-    tmp = jsonData['ar']
-    singer = []
-    for s in tmp:
-        singer.append(s['name'])
-    singer = config['singer_sepchar'].join(singer)
-
-    return {'title':title,'singer':singer,'lrc':lrcdata,'cover':cover}
-
-def getMusic_thirdparty_spare(MusicID):#备用
-    url = 'https://api.imjad.cn/cloudmusic/?type=lyric&id='+str(MusicID)
-    tmp = getData(url)
-    if tmp['data'] == None:
-        return {'error':tmp['error'],'code':tmp['code']}
-    jsonData = json.loads(tmp['data'])
-    try:
-        lrcdata = jsonData['lrc']['lyric']
-    except:
-        return {'error':'No Lyrics.','code':-1}
-    
-    url = 'https://api.imjad.cn/cloudmusic/?type=detail&id='+str(MusicID)
-    data = getData(url)
-    if data['data'] == None:
-        return {'error':tmp['error'],'code':tmp['code']}
-    jsonData = json.loads(data['data'])['songs'][0]
-    title = jsonData['name']
-    cover = jsonData['al']['picUrl']
-    tmp = jsonData['ar']
-    singer = []
-    for s in tmp:
-        singer.append(s['name'])
-    singer = config['singer_sepchar'].join(singer)
-
-    return {'title':title,'singer':singer,'lrc':lrcdata,'cover':cover}
-    
-def getMusic_official_spare(MusicID):#备用
-    tmp = getData('http://music.163.com/api/song/media?id='+str(MusicID))
-    if tmp['data'] == None:
-        return {'error':tmp['error'],'code':tmp['code']}
-    lrcdata = json.loads(tmp['data'])
-    if "lyric" not in lrcdata:
-        return {'error':'No Lyrics.','code':-1}
-    lrcdata = lrcdata['lyric']
-    
-    data = getData('https://music.163.com/song?id='+str(MusicID))['data']
-    sign = r'<script type="application/ld+json">'
-    i = data.find(sign) + len(sign)
-    o = data.find(r'</script>',i)
-    musinfo = json.loads(data[i:o])
-
-    sign = r'<title>'
-    i = data.find(sign) + len(sign)
-    o = data.find('</title>',i)
-    title = data[i:o]
-    tmp = title.split(' - ')[-3]
-    singer = tmp.replace('/',',')
-    
-    title = musinfo['title']
-    cover = musinfo['images'][0]
-
-    if '（原曲' in title:
-        i = title.find('（原曲')
-        o = title.find('）',i) + 1
-        title = title.replace(title[i:o],'')
-
-    return {'title':title,'singer':singer,'lrc':lrcdata['lyric'],'cover':cover}
+    return {'title':title,'singer':singer,'lrc':lrcdata,'cover':cover,'lrctrans':lrctrans,'album':album,'redir':redir}
 
 def searchMusic(keyword):
     url = 'https://v1.hitokoto.cn/nm/search/'+parse.quote(keyword)
@@ -337,23 +281,29 @@ class MainWindow(object):
         if 'error' in self.data:
             if not ignoreError:
                 if self.data['code'] == -1:
-                    tk.messagebox.showinfo(title='=͟͟͞͞(꒪⌓꒪*)',message='没有找到呢。\n这可能是由于此ID对应的歌曲不存在，或者说这首歌曲没有滚动歌词。')
+                    tk.messagebox.showinfo(title='=͟͟͞͞(꒪⌓꒪*)',message='没有找到呢。\n这可能是由于此ID对应的歌曲不存在。')
                 else:
-                    tk.messagebox.showerror(title='=͟͟͞͞(꒪⌓꒪*)',message='Error:%s\n%s'%(self.data['code'],self.data['error']))
+                    tk.messagebox.showerror(title='=͟͟͞͞(꒪⌓꒪*)',message='Error：%s\n%s'%(self.data['code'],self.data['error']))
             return
         self.clear()
         self.label_text2['text'] = '《%s》（ID%s）'%(self.data['title'],self.musicId)
         self.label_text3['text'] = '——By: '+self.data['singer']
-        self.label_text4['text'] = '歌词预览 ↓'
-        self.button_savePathSel['state'] = 'normal'
-        self.button_save['state'] = 'normal'
-        self.setSctext(sctext=self.sctext_lyricShow,lock=True,text=self.data['lrc'])
-        if autoSave:
-            if not os.path.exists('./CMLD_AutoSave/'):
-                os.mkdir('./CMLD_AutoSave/')
-            filename = self.makeFilename(self.data['singer'],self.data['title'])+'.lrc'
-            path = './CMLD_AutoSave/'+filename
-            self.save(path,ignoreError=True)
+        if self.data['lrc'] == None:
+            self.label_text4['text'] = '没有歌词哦'
+        else:
+            self.label_text4['text'] = '歌词预览 ↓'
+            self.button_savePathSel['state'] = 'normal'
+            self.button_save['state'] = 'normal'
+            if config['trans'] and self.data['lrctrans'] != None:
+                self.setSctext(sctext=self.sctext_lyricShow,lock=True,text=self.data['lrctrans'])
+            else:
+                self.setSctext(sctext=self.sctext_lyricShow,lock=True,text=self.data['lrc'])
+            if autoSave:
+                if not os.path.exists('./CMLD_AutoSave/'):
+                    os.mkdir('./CMLD_AutoSave/')
+                filename = self.makeFilename(self.data['singer'],self.data['title'])+'.lrc'
+                path = './CMLD_AutoSave/'+filename
+                self.save(path,ignoreError=True)
 
     def updateYiyan(self,self_=None):
         tmp = getData('v1.hitokoto.cn')
@@ -386,6 +336,7 @@ class MainWindow(object):
         for i in idList:
             self.getIt(i,ignoreError=True,autoSave=True)
             print('批处理 进度%s/%s'%(idList.index(i)+1,len(idList)))
+            time.sleep(config['batch_pause'])
         self.button_execute['state'] = 'normal'
         self.clear()
         if tk.messagebox.askyesno(title='ヽ(✿ﾟ▽ﾟ)ノ',message='完成：%s 个MusicID的获取\n如果没有你要的文件，则有可能发生了错误，或者这首歌没有歌词.\n要打开输出目录吗？'%len(idList)):
@@ -420,14 +371,24 @@ class ConfigWindow(object):
         self.frame_encode = tk.LabelFrame(self.window,text='优先编码')
         self.label_encShow = tk.Label(self.frame_encode,text='当前：-')
         self.button_encSwitch = tk.Button(self.frame_encode,text='切换',command=self.changeEncoding)
+        #翻译
+        self.frame_trans = tk.LabelFrame(self.window,text='翻译优先')
+        self.label_transShow = tk.Label(self.frame_trans,text='-')
+        self.button_trans = tk.Button(self.frame_trans,text='切换',command=self.changeTrans)
+        #批处理等待
+        self.frame_batPause = tk.LabelFrame(self.window,text='批处理等待秒数')
+        self.label_bpText = tk.Label(self.frame_batPause,text='当前：')
+        self.label_bpShow = tk.Label(self.frame_batPause,text='-',bg='#acfff1',width=5)
+        self.entry_bpInput = tk.Entry(self.frame_batPause,width=5)
+        self.button_bpUse = tk.Button(self.frame_batPause,text='应用',command=self.changePautime)
         #完成按钮
-        self.btn_quit = tk.Button(self.window,text='完成',command=self.close)
+        self.btn_quit = tk.Button(self.window,text='我好了',command=self.close)
         #布局
         self.frame_about.grid(column=0,row=0,columnspan=3)
         self.label_about1.grid(column=0,row=0)
         self.frame_yiyan.grid(column=0,row=1)
         self.label_yyShow.grid(column=0,row=0)
-        self.button_yySwitch.grid(column=1,row=0)
+        self.button_yySwitch.grid(column=0,row=1)
         self.frame_outFormat.grid(column=1,row=1)
         self.label_outFmShow.grid(column=0,row=0)
         self.button_fmSwitch.grid(column=0,row=1)
@@ -439,6 +400,14 @@ class ConfigWindow(object):
         self.frame_encode.grid(column=0,row=2)
         self.label_encShow.grid(column=0,row=0)
         self.button_encSwitch.grid(column=0,row=1)
+        self.frame_trans.grid(column=1,row=2)
+        self.label_transShow.grid(column=0,row=0)
+        self.button_trans.grid(column=0,row=1)
+        self.frame_batPause.grid(column=2,row=2)
+        self.label_bpText.grid(column=0,row=0)
+        self.label_bpShow.grid(column=1,row=0)
+        self.entry_bpInput.grid(column=0,row=1)
+        self.button_bpUse.grid(column=1,row=1)
 
         self.btn_quit.grid(column=0,row=3,sticky='w')
 
@@ -446,6 +415,7 @@ class ConfigWindow(object):
         self.encodeMethod = ['UTF-8','MBCS','GBK']
         self.outFormatIndex = self.InsideOutFormat.index(config['outfile_format'])
         self.emIndex = self.encodeMethod.index(config['encoding'])
+        self.trans = config['trans']
 
         self.update()
         self.window.protocol('WM_DELETE_WINDOW',self.close)
@@ -471,9 +441,32 @@ class ConfigWindow(object):
         self.setEntry(entry=self.entry_sscInput)
         self.update()
 
+    def changePautime(self):
+        bp = self.entry_bpInput.get()
+        try:
+            bp = eval(bp)
+        except:
+            tk.messagebox.showwarning(title='(´_ゝ`)',message='输入点正常的东西吧。\n（干点正事吧，使用者。）')
+            return
+        if bp < 0:
+            tk.messagebox.showwarning(title='(눈‸눈)',message='等待时间不可能为负吧？')
+            return
+        elif bp >= 0 and bp <= 1:
+            tk.messagebox.showinfo(title='( ˘•ω•˘ )',message='别把别人服务器搞崩了哦，503警告。\n讲武德，懂？')
+        config['batch_pause'] = bp
+        self.setEntry(entry=self.entry_bpInput)
+        self.update()
+
     def changeEncoding(self):
         self.emIndex = (self.emIndex+1)%(len(self.encodeMethod))
         config['encoding'] = self.encodeMethod[self.emIndex]
+        self.update()
+
+    def changeTrans(self):
+        if config['trans']:
+            config['trans'] = False
+        else:
+            config['trans'] = True
         self.update()
 
     def update(self):
@@ -484,6 +477,11 @@ class ConfigWindow(object):
         self.label_outFmShow['text'] = config['outfile_format']
         self.label_sscShow['text'] = config['singer_sepchar']
         self.label_encShow['text'] = '当前：'+config['encoding']
+        if config['trans']:
+            self.label_transShow['text'] = '开'
+        else:
+            self.label_transShow['text'] = '关'
+        self.label_bpShow['text'] = config['batch_pause']
 
     def setEntry(self,entry=None,lock=False,text=''):
         entry['state'] = 'normal'
@@ -580,7 +578,7 @@ class SearchWindow(object):
             if sear_res['code'] == -1:
                 tk.messagebox.showinfo(title='=͟͟͞͞(꒪⌓꒪*)',message='没有搜索结果。')
             else:
-                tk.messagebox.showerror(title='=͟͟͞͞(꒪⌓꒪*)',message='Error:%s\n%s'%(sear_res['code'],sear_res['error']))
+                tk.messagebox.showerror(title='=͟͟͞͞(꒪⌓꒪*)',message='Error：%s\n%s'%(sear_res['code'],sear_res['error']))
             return
         ids = list(sear_res.keys())
         for i in self.table.get_children():
@@ -665,7 +663,7 @@ class AlbumWindow(object):
             if data['code'] == -1:
                 tk.messagebox.showinfo(title='=͟͟͞͞(꒪⌓꒪*)',message='专辑不存在.')
             else:
-                tk.messagebox.showerror(title='=͟͟͞͞(꒪⌓꒪*)',message='Error:%s\n%s'%(data['code'],data['error']))
+                tk.messagebox.showerror(title='=͟͟͞͞(꒪⌓꒪*)',message='Error：%s\n%s'%(data['code'],data['error']))
             return
         ids = list(data.keys())
         for i in self.table.get_children():
