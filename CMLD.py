@@ -5,12 +5,11 @@ from tkinter import ttk,scrolledtext
 from urllib import request,parse
 import json,gzip,os,sys,time
 
-version = '1.4.0.20210103_beta'
+version = '1.4.1.20210103_beta'
 config = {'yiyan':True,
           'outfile_format':'{singer} - {song}',
           'singer_sepchar':',',
           'encoding':'MBCS',
-          'batch_pause':3,
           'trans':True}
 
 workDir = os.getcwd()
@@ -90,6 +89,32 @@ def getMusic(MusicID):
     redir = tmp['url']
 
     return {'title':title,'singer':singer,'lrc':lrcdata,'cover':cover,'lrctrans':lrctrans,'album':album,'redir':redir}
+
+def getMusic_batch(MusicID_List):
+    tmp = ','.join(MusicID_List)
+    tmp = getData('https://v1.hitokoto.cn/nm/summary/%s?lyric=true&quick=true'%tmp)
+    if tmp['data'] == None:
+        return {'error':tmp['error'],'code':tmp['code']}
+    retList = []
+    tmp = json.loads(tmp['data'])
+    for obj in tmp['ids']:
+        if tmp[obj]['name'] == '获取信息失败':
+            retList.append({'error':'No Song.','code':-1})
+            continue
+        if tmp[obj]['lyric']['base'] == '[00:00.00] 纯音乐，敬请聆听。\n':
+            lrcdata = None
+            lrctrans = None
+        else:
+            lrcdata = tmp[obj]['lyric']['base']
+            lrctrans = tmp[obj]['lyric']['translate']
+        cover = tmp[obj]['album']['picture'].split('?')[0]
+        album = tmp[obj]['album']['id']
+        singer = config['singer_sepchar'].join(tmp[obj]['artists'])
+        title = tmp[obj]['name']
+        redir = tmp[obj]['url']
+        retList.append({'title':title,'singer':singer,'lrc':lrcdata,'cover':cover,'lrctrans':lrctrans,'album':album,'redir':redir})
+    return retList
+        
 
 def searchMusic(keyword):
     url = 'https://v1.hitokoto.cn/nm/search/'+parse.quote(keyword)
@@ -267,7 +292,7 @@ class MainWindow(object):
         filename = replaceChr(tmp).strip()
         return filename
 
-    def getIt(self,MusicID=None,ignoreError=False,autoSave=False):
+    def getIt(self,MusicID=None,ignoreError=False):
         if MusicID == None:
             MusicID = self.entry_idInput.get()
         try:
@@ -298,12 +323,6 @@ class MainWindow(object):
                 self.setSctext(sctext=self.sctext_lyricShow,lock=True,text=self.data['lrctrans'])
             else:
                 self.setSctext(sctext=self.sctext_lyricShow,lock=True,text=self.data['lrc'])
-            if autoSave:
-                if not os.path.exists('./CMLD_AutoSave/'):
-                    os.mkdir('./CMLD_AutoSave/')
-                filename = self.makeFilename(self.data['singer'],self.data['title'])+'.lrc'
-                path = './CMLD_AutoSave/'+filename
-                self.save(path,ignoreError=True)
 
     def updateYiyan(self,self_=None):
         tmp = getData('v1.hitokoto.cn')
@@ -330,19 +349,25 @@ class MainWindow(object):
             return
         elif len(idList) < 1:
             return
-        print('批处理正在运行')
         self.clear()
         self.button_execute['state'] = 'disabled'
-        for i in idList:
-            self.getIt(i,ignoreError=True,autoSave=True)
-            print('批处理 进度%s/%s'%(idList.index(i)+1,len(idList)))
-            time.sleep(config['batch_pause'])
+        tmp = getMusic_batch(idList)
+        for obj in tmp:
+            if obj['lrc'] == None:
+                continue
+            if config['trans'] and obj['lrctrans'] != None:
+                self.setSctext(sctext=self.sctext_lyricShow,lock=True,text=obj['lrctrans'])
+            else:
+                self.setSctext(sctext=self.sctext_lyricShow,lock=True,text=obj['lrc'])
+            if not os.path.exists('./CMLD_AutoSave/'):
+                os.mkdir('./CMLD_AutoSave/')
+            filename = self.makeFilename(obj['singer'],obj['title'])+'.lrc'
+            path = './CMLD_AutoSave/'+filename
+            self.save(path,ignoreError=True)
         self.button_execute['state'] = 'normal'
         self.clear()
         if tk.messagebox.askyesno(title='ヽ(✿ﾟ▽ﾟ)ノ',message='完成：%s 个MusicID的获取\n如果没有你要的文件，则有可能发生了错误，或者这首歌没有歌词.\n要打开输出目录吗？'%len(idList)):
             os.system('explorer "%s"'%(os.path.abspath('./CMLD_AutoSave/')))
-        print('批处理已完成')
-        
 
 class ConfigWindow(object):
     global config
@@ -375,12 +400,6 @@ class ConfigWindow(object):
         self.frame_trans = tk.LabelFrame(self.window,text='翻译优先')
         self.label_transShow = tk.Label(self.frame_trans,text='-')
         self.button_trans = tk.Button(self.frame_trans,text='切换',command=self.changeTrans)
-        #批处理等待
-        self.frame_batPause = tk.LabelFrame(self.window,text='批处理等待秒数')
-        self.label_bpText = tk.Label(self.frame_batPause,text='当前：')
-        self.label_bpShow = tk.Label(self.frame_batPause,text='-',bg='#acfff1',width=5)
-        self.entry_bpInput = tk.Entry(self.frame_batPause,width=5)
-        self.button_bpUse = tk.Button(self.frame_batPause,text='应用',command=self.changePautime)
         #完成按钮
         self.btn_quit = tk.Button(self.window,text='我好了',command=self.close)
         #布局
@@ -403,11 +422,6 @@ class ConfigWindow(object):
         self.frame_trans.grid(column=1,row=2)
         self.label_transShow.grid(column=0,row=0)
         self.button_trans.grid(column=0,row=1)
-        self.frame_batPause.grid(column=2,row=2)
-        self.label_bpText.grid(column=0,row=0)
-        self.label_bpShow.grid(column=1,row=0)
-        self.entry_bpInput.grid(column=0,row=1)
-        self.button_bpUse.grid(column=1,row=1)
 
         self.btn_quit.grid(column=0,row=3,sticky='w')
 
@@ -441,22 +455,6 @@ class ConfigWindow(object):
         self.setEntry(entry=self.entry_sscInput)
         self.update()
 
-    def changePautime(self):
-        bp = self.entry_bpInput.get()
-        try:
-            bp = eval(bp)
-        except:
-            tk.messagebox.showwarning(title='(´_ゝ`)',message='输入点正常的东西吧。\n（干点正事吧，使用者。）')
-            return
-        if bp < 0:
-            tk.messagebox.showwarning(title='(눈‸눈)',message='等待时间不可能为负吧？')
-            return
-        elif bp >= 0 and bp <= 1:
-            tk.messagebox.showinfo(title='( ˘•ω•˘ )',message='别把别人服务器搞崩了哦，503警告。\n讲武德，懂？')
-        config['batch_pause'] = bp
-        self.setEntry(entry=self.entry_bpInput)
-        self.update()
-
     def changeEncoding(self):
         self.emIndex = (self.emIndex+1)%(len(self.encodeMethod))
         config['encoding'] = self.encodeMethod[self.emIndex]
@@ -481,7 +479,6 @@ class ConfigWindow(object):
             self.label_transShow['text'] = '开'
         else:
             self.label_transShow['text'] = '关'
-        self.label_bpShow['text'] = config['batch_pause']
 
     def setEntry(self,entry=None,lock=False,text=''):
         entry['state'] = 'normal'
