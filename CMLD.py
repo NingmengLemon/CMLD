@@ -3,9 +3,9 @@ import tkinter.messagebox
 import tkinter.filedialog
 from tkinter import ttk,scrolledtext
 from urllib import request,parse
-import json,gzip,os,sys,time
+import json,gzip,os,sys,time,_thread
 
-version = '1.4.2.20210109_beta'
+version = '1.4.3.20210110_beta'
 config = {'yiyan':True,
           'outfile_format':'{singer} - {song}',
           'singer_sepchar':',',
@@ -22,6 +22,20 @@ workDir = os.getcwd()
 
 #https://github.com/a632079/teng-koa/blob/master/netease.md
 #https://api.imjad.cn/cloudmusic.md
+
+def download(url,path):
+    try:
+        import requests
+    except:
+        print('Requests Library is Required.')
+        return
+    try:
+        file = requests.get(url,allow_redirects=True)
+        open(path,'wb').write(file.content)
+    except Exception as e:
+        print('Error:',str(e))
+    else:
+        print('Done.')
 
 def updateConfigFile(path=workDir+'\\CMLD_config.json',mode='load'):#mode = release / load
     global config
@@ -119,7 +133,7 @@ def getMusic_batch(MusicID_List):
         
 
 def searchMusic(keyword):
-    url = 'https://v1.hitokoto.cn/nm/search/'+parse.quote(keyword)
+    url = 'https://v1.hitokoto.cn/nm/search/'+parse.quote(keyword)+'?type=SONG&offset=0&limit=100'
     tmp = getData(url)
     if tmp['data'] == None:
         return {'error':tmp['error'],'code':tmp['code']}
@@ -182,6 +196,7 @@ class MainWindow(object):
         self.button_getAlbum = tk.Button(self.frame_extraFunc,text='解析专辑',command=self.album)
         self.label_yiyan = tk.Label(self.window,text='')
         self.label_yiyan.bind('<Button-1>',self.updateYiyan)
+        self.button_dlau = tk.Button(self.window,text='下载音频',state='disabled',command=self.downloadAudio)
         
         self.label_text1.grid(column=0,row=0)
         self.entry_idInput.grid(column=1,row=0)
@@ -197,15 +212,27 @@ class MainWindow(object):
         self.button_save.grid(column=3,row=5,sticky='w')
         self.button_setting.grid(column=3,row=6,sticky='w')
         self.button_help.grid(column=2,row=6,sticky='w')
+        self.button_dlau.grid(column=3,row=3,sticky='w')
         self.button_exit.grid(column=0,row=6,sticky='w')
         self.frame_extraFunc.grid(column=0,row=7,columnspan=4,sticky='w',ipadx=100)
         self.button_search.grid(column=0,row=0,sticky='w')
         self.button_getAlbum.grid(column=1,row=0,sticky='w')
         self.label_yiyan.grid(column=0,row=8,sticky='w',columnspan=4)
 
+        self.data = ''
         if config['yiyan']:
             self.updateYiyan()
         self.window.mainloop()
+
+    def downloadAudio(self):
+        url = self.data['redir']
+        path = './CMLD_AutoSave/'+self.makeFilename(self.data['singer'],self.data['title'])
+        if not os.path.exists('./CMLD_AutoSave/'):
+            os.mkdir('./CMLD_AutoSave/')
+        print('Downloading...')
+        _thread.start_new(download,(url,path+'.mp3'))
+        self.button_dlau['state'] = 'disabled'
+        self.save(path+'.lrc',True)
 
     def close(self):
         self.window.quit()
@@ -219,7 +246,9 @@ class MainWindow(object):
                 '歌词文件的编码也是可以在设置中进行改动的.',
                 '更多功能详见"拓展功能"区域.',
                 '注意：便携设备的编码通常为MBCS或UTF-8.',
-                '当保存器遇到所选编码不支持的字符时将会将其替换为"?"字符.']
+                '当保存器遇到所选编码不支持的字符时将会将其替换为"?"字符.',
+                '下载音频功能尚不成熟，且需要requests库。',
+                '音频和批处理自动保存至CMLD_AutoSave文件夹.']
         tk.messagebox.showinfo(title='(⑅˃◡˂⑅)',message='\n'.join(text))
         
     def config(self):
@@ -236,6 +265,7 @@ class MainWindow(object):
         self.setEntry(entry=self.entry_savePathShow,lock=True)
         self.button_savePathSel['state'] = 'disabled'
         self.button_save['state'] = 'disabled'
+        self.button_dlau['state'] = 'disabled'
 
     def setEntry(self,entry=None,lock=False,text=''):
         entry['state'] = 'normal'
@@ -311,6 +341,7 @@ class MainWindow(object):
                     tk.messagebox.showerror(title='=͟͟͞͞(꒪⌓꒪*)',message='Error：%s\n%s'%(self.data['code'],self.data['error']))
             return
         self.clear()
+        self.button_dlau['state'] = 'normal'
         self.label_text2['text'] = '《%s》（ID%s）'%(self.data['title'],self.musicId)
         self.label_text3['text'] = '——By: '+self.data['singer']
         if self.data['lrc'] == None:
@@ -355,6 +386,10 @@ class MainWindow(object):
         self.clear()
         self.button_execute['state'] = 'disabled'
         tmp = getMusic_batch(idList)
+        if 'error' in tmp:
+            if tk.messagebox.askyesno(title='=͟͟͞͞(꒪⌓꒪*)',message='Error:%s\n%s\n\n重试？'%(tmp['code'],tmp['error'])):
+                self.batch(idList)
+                return
         i = 0
         for obj in tmp:
             i += 1
@@ -400,7 +435,7 @@ class ConfigWindow(object):
         self.entry_sscInput = tk.Entry(self.frame_singerSepchar,width=5)
         self.button_sscUse = tk.Button(self.frame_singerSepchar,text='应用',command=self.changeSepchar)
         #编码
-        self.frame_encode = tk.LabelFrame(self.window,text='优先编码')
+        self.frame_encode = tk.LabelFrame(self.window,text='编码')
         self.label_encShow = tk.Label(self.frame_encode,text='当前：-')
         self.button_encSwitch = tk.Button(self.frame_encode,text='切换',command=self.changeEncoding)
         #翻译
@@ -408,7 +443,7 @@ class ConfigWindow(object):
         self.label_transShow = tk.Label(self.frame_trans,text='-')
         self.button_trans = tk.Button(self.frame_trans,text='切换',command=self.changeTrans)
         #完成按钮
-        self.btn_quit = tk.Button(self.window,text='我好了',command=self.close)
+        self.btn_quit = tk.Button(self.window,text='完成',command=self.close)
         #布局
         self.frame_about.grid(column=0,row=0,columnspan=3)
         self.label_about1.grid(column=0,row=0)
