@@ -5,12 +5,13 @@ from tkinter import ttk,scrolledtext
 from urllib import request,parse
 import json,gzip,os,sys,time
 
-version = '1.4.1.20210103_beta'
+version = '1.4.2.20210109_beta'
 config = {'yiyan':True,
           'outfile_format':'{singer} - {song}',
           'singer_sepchar':',',
           'encoding':'MBCS',
-          'trans':True}
+          'trans':True,
+          'debug':False}
 
 workDir = os.getcwd()
     
@@ -63,7 +64,8 @@ def replaceChr(text):#处理非法字符
               '>':'＞',
               '<':'＜',
               '|':'｜',
-              '?':'？'}
+              '?':'？',
+              '"':'＂'}
     tmp = list(repChr.keys())
     for t in tmp:
         text = text.replace(t,repChr[t])
@@ -210,14 +212,15 @@ class MainWindow(object):
         self.window.destroy()
 
     def showHelp(self):
-        text = '云音乐歌词下载器 v.%s'%(version)+\
-                '\n在输入框中输入歌曲的MusicID进行查询，切记不要直接复制网址.'+\
-                '\n建议将歌词文件保存为与下载的音乐文件一致的文件名，以便于播放器读取.'+\
-                '\n歌词文件的文件名的格式是可以在设置中进行改动的.'+\
-                '\n歌词文件的编码也是可以在设置中进行改动的.'+\
-                '\n更多功能详见"拓展功能"区域.'+\
-                '\n注意：便携设备的编码通常为MBCS或UTF-8.'
-        tk.messagebox.showinfo(title='(⑅˃◡˂⑅)',message=text)
+        text = ['云音乐歌词下载器 v.%s'%(version),
+                '在输入框中输入歌曲的MusicID进行查询，切记不要直接复制网址.',
+                '建议将歌词文件保存为与下载的音乐文件一致的文件名，以便于播放器读取.',
+                '歌词文件的文件名的格式是可以在设置中进行改动的.',
+                '歌词文件的编码也是可以在设置中进行改动的.',
+                '更多功能详见"拓展功能"区域.',
+                '注意：便携设备的编码通常为MBCS或UTF-8.',
+                '当保存器遇到所选编码不支持的字符时将会将其替换为"?"字符.']
+        tk.messagebox.showinfo(title='(⑅˃◡˂⑅)',message='\n'.join(text))
         
     def config(self):
         self.button_setting['state'] = 'disabled'
@@ -270,16 +273,13 @@ class MainWindow(object):
                     self.getIt()
             return
         try:
-            with open(path,'w+',encoding=config['encoding']) as f:
+            with open(path,'w+',encoding=config['encoding'],errors='replace') as f:
                 f.write(content)
-        except:
-            try:
-                with open(path,'w+',encoding='utf-8') as f:
-                    f.write(content)
-            except Exception as e:
-                if not ignoreError:
-                    tk.messagebox.askyesno(title='｡ﾟヽ(ﾟ´Д`)ﾉﾟ｡',message='写入失败！')
-                return
+        except Exception as e:
+            if not ignoreError:
+                tk.messagebox.askyesno(title='｡ﾟヽ(ﾟ´Д`)ﾉﾟ｡',message='写入失败！\n'+str(e))
+            print('写入失败:',str(e))
+            return
         if not ignoreError:
             tk.messagebox.showinfo(title='ヽ(✿ﾟ▽ﾟ)ノ',message='完成！')
 
@@ -349,10 +349,16 @@ class MainWindow(object):
             return
         elif len(idList) < 1:
             return
+        if config['debug']:
+            print('接收参数：',idList)
+        print('处理中')
         self.clear()
         self.button_execute['state'] = 'disabled'
         tmp = getMusic_batch(idList)
+        i = 0
         for obj in tmp:
+            i += 1
+            print('\r进度%.2f%%'%(i/len(tmp)*100),end='')
             if obj['lrc'] == None:
                 continue
             if config['trans'] and obj['lrctrans'] != None:
@@ -368,6 +374,7 @@ class MainWindow(object):
         self.clear()
         if tk.messagebox.askyesno(title='ヽ(✿ﾟ▽ﾟ)ノ',message='完成：%s 个MusicID的获取\n如果没有你要的文件，则有可能发生了错误，或者这首歌没有歌词.\n要打开输出目录吗？'%len(idList)):
             os.system('explorer "%s"'%(os.path.abspath('./CMLD_AutoSave/')))
+        print('\n处理完成')
 
 class ConfigWindow(object):
     global config
@@ -661,6 +668,8 @@ class AlbumWindow(object):
                 tk.messagebox.showinfo(title='=͟͟͞͞(꒪⌓꒪*)',message='专辑不存在.')
             else:
                 tk.messagebox.showerror(title='=͟͟͞͞(꒪⌓꒪*)',message='Error：%s\n%s'%(data['code'],data['error']))
+                if config['debug']:
+                    print('Error:',data['error'])
             return
         ids = list(data.keys())
         for i in self.table.get_children():
