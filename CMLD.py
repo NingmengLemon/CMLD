@@ -10,6 +10,11 @@ import _thread
 import hashlib
 import math
 from io import BytesIO
+import winreg
+
+def get_desktop():
+    key = winreg.OpenKey(winreg.HKEY_CURRENT_USER,r'Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders')
+    return winreg.QueryValueEx(key,"Desktop")[0]
 
 fake_headers_get = {
     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',  # noqa
@@ -25,6 +30,7 @@ fake_headers_post = {
     }
 
 user_name = os.getlogin()
+desktop_path = get_desktop()
 encodec = 'MBCS'
 
 def _ungzip(data):
@@ -87,7 +93,7 @@ def parse_source(source):
     try:
         source = int(source)
     except ValueError:
-        res = re.findall(r'id\=([0-9]+)',source,flags=re.I)
+        res = re.findall(r'[^a-zA-Z0-9]id\=([0-9]+)',source,flags=re.I)
         if res:
             res = int(res[0])
         else:
@@ -102,20 +108,22 @@ if __name__ == '__main__':
         mid = input('Input the source:')
         mid = parse_source(mid)
         if mid:
+            fname_o = os.path.join(desktop_path,'%s_original.lrc'%mid)
+            fname_t = os.path.join(desktop_path,'%s_translated.lrc'%mid)
             olrc,tlrc = get_lyrics(mid)
             if olrc and tlrc:
                 choice = input('Original ver (1) or Translated ver (2) :').strip()
                 if choice == '1':
-                    with open('./%s_original.lrc'%mid,'w+',encoding=encodec,errors='ignore') as f:
+                    with open(fname_o,'w+',encoding=encodec,errors='ignore') as f:
                         f.write(olrc)
                 elif choice == '2':
-                    with open('./%s_translated.lrc'%mid,'w+',encoding=encodec,errors='ignore') as f:
+                    with open(fname_t,'w+',encoding=encodec,errors='ignore') as f:
                         f.write(tlrc)
-                print('Done.')
+                print('Lrc file has been saved to Desktop with encoding %s.'%encodec)
             elif olrc and not tlrc:
-                with open('./%s_original.lrc'%mid,'w+',encoding=encodec,errors='ignore') as f:
+                with open(fname_o,'w+',encoding=encodec,errors='ignore') as f:
                     f.write(olrc)
-                print('Done.')
+                print('Lrc file has been saved to Desktop with encoding %s.'%encodec)
             else:
                 print('No lyrics to be downloaded.')
         else:
