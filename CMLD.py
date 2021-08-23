@@ -22,7 +22,6 @@ fake_headers_get = {
     'Accept-Encoding': 'gzip,deflate,sdch',
     'Accept-Language': 'en-US,en;q=0.8',
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/79.0.3945.74 Safari/537.36 Edg/79.0.309.43',  # noqa
-    'Referer':'https://www.bilibili.com/'
 }
 
 fake_headers_post = {
@@ -80,10 +79,9 @@ def get_info(mid):
         res['artist'] = []
         tmp = re.findall(r'\<p class\=\"des s\-fc4\"\>歌手：(.+)\<\/p\>',data)[0].split(' / ')
         for t in tmp:
-            try:
-                res['artist'].append(re.findall(r'\<a class\=\"s\-fc7\" href\=\"\/artist\?id\=[0-9]+\" *>(.+)\<\/a\>',t)[0])
-            except IndexError:
-                continue
+            sp = re.findall(r'\<a class\=\"s\-fc7\" href\=\"\/artist\?id\=[0-9]+\" *>(.+)\<\/a\>',t)
+            if sp:
+                res['artist'].append(sp[0])
     except IndexError:
         print('Match ERROR: Music info not found.')
         res = None
