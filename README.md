@@ -8,4 +8,6 @@ CloudMusic Lyric Downloader
 
 GUI也懒得重写了，就写了一个CMD界面，凑合着用就行
 
+（虽然嘴上这么说着，身体最后还是把基础功能补全了awa
+
 已停止开发。
