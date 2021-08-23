@@ -68,6 +68,37 @@ def get_content(url, headers=fake_headers_get):
     content = _get_response(url, headers=headers).data
     return content
 
+def get_info(mid):
+    url = 'https://music.163.com/song?id={mid}'.format(mid=mid)
+    data = get_content(url).decode('utf-8','ignore')
+    res = {}
+    try:
+        res['album'] = re.findall(r'\<meta property\=\"og\:music\:album\" content=\"(.+)\" *\/\>',data)[0]
+        res['title'] = re.findall(r'\<meta property\=\"og\:title\" content=\"(.+)\" *\/\>',data)[0]
+        res['image'] = re.findall(r'\<meta property\=\"og\:image\" content=\"(.+)\" *\/\>',data)[0]
+        res['url'] = url
+        res['artist'] = []
+        tmp = re.findall(r'\<p class\=\"des s\-fc4\"\>歌手：(.+)\<\/p\>',data)[0].split(' / ')
+        for t in tmp:
+            try:
+                res['artist'].append(re.findall(r'\<a class\=\"s\-fc7\" href\=\"\/artist\?id\=[0-9]+\" *>(.+)\<\/a\>',t)[0])
+            except IndexError:
+                continue
+    except IndexError:
+        print('Match ERROR: Music info not found.')
+        res = None
+    except Exception as e:
+        print('Unexpected ERROR:',str(e))
+        res = None
+    return res
+
+def replace_char(text):
+    repChr = {'/':'／','*':'＊',':':'：','\\':'＼','>':'＞',
+              '<':'＜','|':'｜','?':'？','"':'＂'}
+    for t in list(repChr.keys()):
+        text = text.replace(t,repChr[t])
+    return text
+
 def get_lyrics(mid):
     api = f'https://music.163.com/api/song/lyric?id={str(mid)}&lv=1&kv=1&tv=-1'
     try:
@@ -108,20 +139,23 @@ if __name__ == '__main__':
         mid = input('Input the source:')
         mid = parse_source(mid)
         if mid:
-            fname_o = os.path.join(desktop_path,'%s_original.lrc'%mid)
-            fname_t = os.path.join(desktop_path,'%s_translated.lrc'%mid)
+            info = get_info(mid)
+            if info:
+                file = os.path.join(desktop_path,replace_char('{0} - {1}.lrc'.format(','.join(info['artist']),info['title'])))
+            else:
+                file = os.path.join(desktop_path,'{}.lrc'.format(mid))
             olrc,tlrc = get_lyrics(mid)
             if olrc and tlrc:
                 choice = input('Original ver (1) or Translated ver (2) :').strip()
-                if choice == '1':
-                    with open(fname_o,'w+',encoding=encodec,errors='ignore') as f:
+                if choice == '1' or not choice:
+                    with open(file,'w+',encoding=encodec,errors='ignore') as f:
                         f.write(olrc)
                 elif choice == '2':
-                    with open(fname_t,'w+',encoding=encodec,errors='ignore') as f:
+                    with open(file,'w+',encoding=encodec,errors='ignore') as f:
                         f.write(tlrc)
                 print('Lrc file has been saved to Desktop with encoding %s.'%encodec)
             elif olrc and not tlrc:
-                with open(fname_o,'w+',encoding=encodec,errors='ignore') as f:
+                with open(file,'w+',encoding=encodec,errors='ignore') as f:
                     f.write(olrc)
                 print('Lrc file has been saved to Desktop with encoding %s.'%encodec)
             else:
