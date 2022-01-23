@@ -10,10 +10,30 @@ import logging
 import requester
 import tkinter as tk
 from tkinter import filedialog
+from functools import wraps
+
+version = '2.1.0'
 
 encoding = 'utf-8'
 root_window = tk.Tk()
 root_window.withdraw()
+
+def auto_retry(retry_time=3):
+    def retry_decorator(func):
+        @wraps(func)
+        def wrapped(*args,**kwargs):
+            _run_counter = 0
+            while True:
+                _run_counter += 1
+                try:
+                    return func(*args,**kwargs)
+                except Exception as e:
+                    print(e)
+                    if _run_counter > retry_time:
+                        raise e
+        return wrapped
+    return retry_decorator
+    
 
 def get_desktop():
     key = winreg.OpenKey(winreg.HKEY_CURRENT_USER,'Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Shell Folders')
@@ -21,6 +41,7 @@ def get_desktop():
 
 desktop = get_desktop()
 
+@auto_retry()
 def get_info(mid):
     url = 'https://music.163.com/song?id={mid}'.format(mid=mid)
     bs = BS(requester.get_content_str(url),'html.parser')
@@ -34,6 +55,7 @@ def get_info(mid):
         }
     return res
 
+@auto_retry()
 def get_album(aid):
     url = 'https://music.163.com/album?id={aid}'.format(aid=aid)
     bs = BS(requester.get_content_str(url),'html.parser')
@@ -51,6 +73,7 @@ def get_album(aid):
         }
     return res
 
+@auto_retry()
 def search_music(*kws,limit=10,offset=0):
     url = 'https://music.163.com/api/search/get/?s={}&limit={}&type=1&offset={}'.format('+'.join([requester.parse.quote(kw) for kw in kws]),limit,offset)
     data = json.loads(requester.get_content_str(url))
@@ -73,26 +96,22 @@ def replace_char(text):
         text = text.replace(t,repChr[t])
     return text
 
+@auto_retry()
 def get_lyrics(mid):
     api = f'https://music.163.com/api/song/lyric?id={str(mid)}&lv=1&kv=1&tv=-1'
-    try:
-        data = json.loads(requester.get_content_str(api))
-        if 'lrc' in data:
-            lyrics = data['lrc']['lyric']
-            if 'tlyric' in data:
-                if data['tlyric']['lyric'].strip():
-                    lyrics_trans = data['tlyric']['lyric']
-                else:
-                    lyrics_trans = None
+    data = json.loads(requester.get_content_str(api))
+    if 'lrc' in data:
+        lyrics = data['lrc']['lyric']
+        if 'tlyric' in data:
+            if data['tlyric']['lyric'].strip():
+                lyrics_trans = data['tlyric']['lyric']
             else:
                 lyrics_trans = None
         else:
-            lyrics = lyrics_trans = None
-    except Exception as e:
-        print(str(e))
+            lyrics_trans = None
+    else:
         lyrics = lyrics_trans = None
-    finally:
-        return lyrics,lyrics_trans
+    return lyrics,lyrics_trans
 
 def parse_filename(fn):
     fn = fn.split(' - ',1)
@@ -104,6 +123,7 @@ def parse_filename(fn):
         artists = []
     return title,artists
 
+@auto_retry()
 def download_lyrics(mid,topath,trans=False,info=None,lrcs=None):
     '''info和lrcs是预处理信息, 从信息获取函数获取的源数据, 为的是避免重复请求'''
     if info:
@@ -122,7 +142,9 @@ def download_lyrics(mid,topath,trans=False,info=None,lrcs=None):
         filename = replace_char('{} - {}.lrc'.format(','.join(info['artists']),info['title']))
         with open(os.path.join(topath,filename),'w+',encoding=encoding,errors='ignore') as f:
             f.write(lrc)
-        print(filename,'>>',topath)
+        print('Save',filename,'>>',topath)
+    else:
+        print('Music ID',mid,'has no lyrics.')
 
 #https://github.com/amjith/fuzzyfinder/
 def fuzzy_match(string, collection, accessor=lambda x: x, sort_results=True):
@@ -141,8 +163,22 @@ def fuzzy_match(string, collection, accessor=lambda x: x, sort_results=True):
     else:
         return (z[-1] for z in sorted(suggestions, key=lambda x: x[:2]))
 
+def walk_topfolder(path):
+    dirs = os.listdir(path)
+    files = []
+    folders = []
+    for d in dirs:
+        if os.path.isfile(os.path.join(path,d)):
+            files.append(d)
+        elif os.path.isdir(os.path.join(path,d)):
+            folders.append(d)
+    yield path,folders,files
+            
+
 def main():
+    global encoding
     print('Welcome to CMLD.')
+    print('Current Version:',version)
     while True:
         choice = input('\nChoose one option to start.'\
                        '\n (1)Download lyrics via music id.'\
@@ -210,11 +246,16 @@ def main():
                 trans = True
             else:
                 trans = False
+            toponly = input('Top folder only (0) or All file tree (1)').strip()
+            if toponly == '1':
+                toponly = False
+            else:
+                toponly = True
             workdir = filedialog.askdirectory(title='Choose Path to Scan') #
             if workdir:
                 print('Working...')
                 loop_counter = 0
-                for root,folders,files in os.walk(workdir):
+                for root,folders,files in {False:os.walk,True:walk_topfolder}[toponly](workdir):
                     for file in files:
                         loop_counter += 1
                         base,extension = os.path.splitext(file)
@@ -237,7 +278,7 @@ def main():
                                 for obj in data:
                                     if obj['title'] == title and sum([(i in obj['artists']) for i in artists]) == len(artists):
                                         print('File "{}" matched music "{}"(id{}).'.format(file,obj['title'],obj['mid']))
-                                        download_lyrics(matched_obj['mid'],root,trans=trans,info=matched_obj)
+                                        download_lyrics(matched_obj['mid'],root,trans=trans,info=obj)
                                         break
                                     else:
                                         print('File "{}" has no match result.'.format(file))
@@ -245,8 +286,18 @@ def main():
                             continue
             else:
                 print('No path to scan file.')
-        elif choice == 'cls':
+        elif choice.lower() == 'cls':
             os.system('cls')
+        elif choice.lower() == 'config':
+            option = input('Config Menu'\
+                           ' (1)Encoding'\
+                           'Choice:').strip().lower()
+            if option == '1':
+                print('Current Encoding:',encoding)
+                new_enc = input('New Encoding:').strip().lower()
+                if new_enc:
+                    encoding = new_enc
+            
             
 if __name__ == '__main__':
     if '-debug' in sys.argv:
