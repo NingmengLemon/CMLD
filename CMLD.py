@@ -12,7 +12,7 @@ import tkinter as tk
 from tkinter import filedialog
 from functools import wraps
 
-version = '2.1.0'
+version = '2.1.1'
 
 encoding = 'utf-8'
 root_window = tk.Tk()
@@ -77,6 +77,8 @@ def get_album(aid):
 def search_music(*kws,limit=10,offset=0):
     url = 'https://music.163.com/api/search/get/?s={}&limit={}&type=1&offset={}'.format('+'.join([requester.parse.quote(kw) for kw in kws]),limit,offset)
     data = json.loads(requester.get_content_str(url))
+    if 'result' not in data:
+        return []
     if 'songs' in data['result']:
         res = [{
             'mid':i['id'],'title':i['name'],
@@ -163,7 +165,7 @@ def fuzzy_match(string, collection, accessor=lambda x: x, sort_results=True):
     else:
         return (z[-1] for z in sorted(suggestions, key=lambda x: x[:2]))
 
-def walk_topfolder(path):
+def walk_topfolder(path): #返回的数据结构与os.walk保持一致
     dirs = os.listdir(path)
     files = []
     folders = []
@@ -183,7 +185,8 @@ def main():
         choice = input('\nChoose one option to start.'\
                        '\n (1)Download lyrics via music id.'\
                        '\n (2)Parse album via album id and download lyrics of each music.'\
-                       '\n (3)Scan local folder and download lyrics of each music file according to their filename.'\
+                       '\n (3)Scan local folder and download lyrics of each music file according to their filenames.'\
+                       '\n (4)Choose some files manually and download lyrics for them according to thier filenames.'\
                        '\nChoice:').strip()
         if choice == '1':
             source = input('Music ID or Url:').strip()
@@ -197,16 +200,18 @@ def main():
                     music_id = None
             if music_id:
                 lrc_orig,lrc_trans = get_lyrics(music_id)
-                if lrc_orig and lrc_trans:
-                    trans = input('Original version (0) or Translated version (1):').strip()
-                    if trans == '1':
-                        download_lyrics(music_id,desktop,trans=True,lrcs=(lrc_orig,lrc_trans))
+                topath = filedialog.askdirectory(title='Choose Output Path')
+                if topath:
+                    if lrc_orig and lrc_trans:
+                        trans = input('Original version (0) or Translated version (1):').strip()
+                        if trans == '1':
+                            download_lyrics(music_id,topath,trans=True,lrcs=(lrc_orig,lrc_trans))
+                        else:
+                            download_lyrics(music_id,topath,trans=False,lrcs=(lrc_orig,lrc_trans))
+                    elif lrc_orig and not lrc_trans:
+                        download_lyrics(music_id,topath,trans=False,lrcs=(lrc_orig,lrc_trans))
                     else:
-                        download_lyrics(music_id,desktop,trans=False,lrcs=(lrc_orig,lrc_trans))
-                elif lrc_orig and not lrc_trans:
-                    download_lyrics(music_id,desktop,trans=False,lrcs=(lrc_orig,lrc_trans))
-                else:
-                    print('No lyrics to download.')
+                        print('No lyrics to download.')
             else:
                 print('No music id to extract.')
         elif choice == '2':
@@ -246,7 +251,7 @@ def main():
                 trans = True
             else:
                 trans = False
-            toponly = input('Top folder only (0) or All file tree (1)').strip()
+            toponly = input('Top folder only (0) or All file tree (1):').strip()
             if toponly == '1':
                 toponly = False
             else:
@@ -286,6 +291,51 @@ def main():
                             continue
             else:
                 print('No path to scan file.')
+        elif choice.lower() == '4':
+            match_mode = input('Fuzzy match (0) or Complete match (1):').strip() #匹配模式
+            if match_mode == '1':
+                fuzzy = False
+            else:
+                fuzzy = True
+            trans = input('Original version (0) or Translated version (1):').strip() #是否翻译
+            if trans == '1':
+                trans = True
+            else:
+                trans = False
+            targets = filedialog.askopenfilenames(title='Choose some files to match.') #
+            if targets:
+                loop_counter = 0
+                for fullpath in targets:
+                    loop_counter += 1
+                    root,file = os.path.split(fullpath)
+                    base,extension = os.path.splitext(file)
+                    if extension.lower() in ['.m4a','.mp3','.flac','.aac','.ape','.wma']:
+                        title,artists = parse_filename(base)
+                        data = search_music(title,*artists)
+                        if not data:
+                            print('File "{}" has no match result.'.format(file))
+                            continue
+                        if fuzzy:
+                            titles_to_match = [i['title'] for i in data]
+                            match_res = fuzzy_match(title,titles_to_match)
+                            try:
+                                matched_obj = data[titles_to_match.index(next(match_res))]
+                                print('File "{}" matched music "{}"(id{}).'.format(file,matched_obj['title'],matched_obj['mid']))
+                                download_lyrics(matched_obj['mid'],root,trans=trans,info=matched_obj) #因为键的命名方法一致, 所以可以直接传入
+                            except StopIteration:
+                                print('File "{}" has no match result.'.format(file))
+                        else:
+                            for obj in data:
+                                if obj['title'] == title and sum([(i in obj['artists']) for i in artists]) == len(artists):
+                                    print('File "{}" matched music "{}"(id{}).'.format(file,obj['title'],obj['mid']))
+                                    download_lyrics(matched_obj['mid'],root,trans=trans,info=obj)
+                                    break
+                                else:
+                                    print('File "{}" has no match result.'.format(file))
+                    else:
+                        continue
+            else:
+                print('No file to match..')
         elif choice.lower() == 'cls':
             os.system('cls')
         elif choice.lower() == 'config':
