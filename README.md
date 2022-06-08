@@ -16,8 +16,11 @@ CloudMusic Lyric Downloader
 手动指定音频文件并为其匹配下载合适的歌词 | 同上 
 
 注意：匹配文件时按 163Key -> Tag -> 文件名 的优先级进行匹配
+
 注意：歌词文件命名：artist1,artist2,...,artistn - title.lrc
+
 注意：歌词文件编码：UTF-8
+
 注意：网络错误最多重试 3 次
 
 ## 关于 163 Key：
