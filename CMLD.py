@@ -11,8 +11,10 @@ import requester
 import tkinter as tk
 from tkinter import filedialog
 from functools import wraps
+import key163
+from tinytag import TinyTag
 
-version = '2.1.1'
+version = '2.1.2'
 
 encoding = 'utf-8'
 root_window = tk.Tk()
@@ -115,6 +117,9 @@ def get_lyrics(mid):
         lyrics = lyrics_trans = None
     return lyrics,lyrics_trans
 
+def parse_tag(file):
+    return TinyTag.get(file).as_dict()
+
 def parse_filename(fn):
     fn = fn.split(' - ',1)
     if len(fn) == 2:
@@ -124,6 +129,27 @@ def parse_filename(fn):
         title = fn[0]
         artists = []
     return title,artists
+
+def get_fileinfo(file):
+    #tag
+    tags = parse_tag(file)
+    #163key
+    if tags['comment']:
+        if tags['comment'].startswith("163 key(Don't modify):"):
+            key = tags['comment'][22:]
+            key = key163.parse_163key(key)
+            return key['musicName'],[i[0] for i in key['artist']],key['musicId']
+    #common
+    if tags['title'] and tags['artist']:
+        return tags['title'],tags['artist'].split('/'),None
+    #filename
+    t,a = parse_filename(os.path.splitext(os.path.split(file)[1])[0])
+    if t and a:
+        return t,a,None
+    elif t and not a and tags['title']:
+        return tags['title'],None,None
+    else:
+        return t,None,None
 
 @auto_retry()
 def download_lyrics(mid,topath,trans=False,info=None,lrcs=None):
@@ -186,7 +212,7 @@ def main():
                        '\n (1)Download lyrics via music id.'\
                        '\n (2)Parse album via album id and download lyrics of each music.'\
                        '\n (3)Scan local folder and download lyrics of each music file according to their filenames.'\
-                       '\n (4)Choose some files manually and download lyrics for them according to thier filenames.'\
+                       '\n (4)Choose some files in person and download lyrics for them according to thier filenames.'\
                        '\nChoice:').strip()
         if choice == '1':
             source = input('Music ID or Url:').strip()
@@ -265,28 +291,32 @@ def main():
                         loop_counter += 1
                         base,extension = os.path.splitext(file)
                         if extension.lower() in ['.m4a','.mp3','.flac','.aac','.ape','.wma']:
-                            title,artists = parse_filename(base)
-                            data = search_music(title,*artists)
-                            if not data:
-                                print('File "{}" has no match result.'.format(file))
-                                continue
-                            if fuzzy:
-                                titles_to_match = [i['title'] for i in data]
-                                match_res = fuzzy_match(title,titles_to_match)
-                                try:
-                                    matched_obj = data[titles_to_match.index(next(match_res))]
-                                    print('File "{}" matched music "{}"(id{}).'.format(file,matched_obj['title'],matched_obj['mid']))
-                                    download_lyrics(matched_obj['mid'],root,trans=trans,info=matched_obj) #因为键的命名方法一致, 所以可以直接传入
-                                except StopIteration:
-                                    print('File "{}" has no match result.'.format(file))
+                            title,artists,musicid = get_fileinfo(os.path.join(root,file))
+                            if musicid:
+                                print('File "{}" is music "{}"(id{})'.format(file,title,musicid))
+                                download_lyrics(matched_obj['mid'],root,trans=trans)
                             else:
-                                for obj in data:
-                                    if obj['title'] == title and sum([(i in obj['artists']) for i in artists]) == len(artists):
-                                        print('File "{}" matched music "{}"(id{}).'.format(file,obj['title'],obj['mid']))
-                                        download_lyrics(matched_obj['mid'],root,trans=trans,info=obj)
-                                        break
-                                    else:
+                                data = search_music(title,*artists)
+                                if not data:
+                                    print('File "{}" has no match result.'.format(file))
+                                    continue
+                                if fuzzy:
+                                    titles_to_match = [i['title'] for i in data]
+                                    match_res = fuzzy_match(title,titles_to_match)
+                                    try:
+                                        matched_obj = data[titles_to_match.index(next(match_res))]
+                                        print('File "{}" matched music "{}"(id{}).'.format(file,matched_obj['title'],matched_obj['mid']))
+                                        download_lyrics(matched_obj['mid'],root,trans=trans,info=matched_obj) #因为键的命名方法一致, 所以可以直接传入
+                                    except StopIteration:
                                         print('File "{}" has no match result.'.format(file))
+                                else:
+                                    for obj in data:
+                                        if obj['title'] == title and sum([(i in obj['artists']) for i in artists]) == len(artists):
+                                            print('File "{}" matched music "{}"(id{}).'.format(file,obj['title'],obj['mid']))
+                                            download_lyrics(matched_obj['mid'],root,trans=trans,info=obj)
+                                            break
+                                        else:
+                                            print('File "{}" has no match result.'.format(file))
                         else:
                             continue
             else:
@@ -310,28 +340,32 @@ def main():
                     root,file = os.path.split(fullpath)
                     base,extension = os.path.splitext(file)
                     if extension.lower() in ['.m4a','.mp3','.flac','.aac','.ape','.wma']:
-                        title,artists = parse_filename(base)
-                        data = search_music(title,*artists)
-                        if not data:
-                            print('File "{}" has no match result.'.format(file))
-                            continue
-                        if fuzzy:
-                            titles_to_match = [i['title'] for i in data]
-                            match_res = fuzzy_match(title,titles_to_match)
-                            try:
-                                matched_obj = data[titles_to_match.index(next(match_res))]
-                                print('File "{}" matched music "{}"(id{}).'.format(file,matched_obj['title'],matched_obj['mid']))
-                                download_lyrics(matched_obj['mid'],root,trans=trans,info=matched_obj) #因为键的命名方法一致, 所以可以直接传入
-                            except StopIteration:
-                                print('File "{}" has no match result.'.format(file))
+                        title,artists,musicid = get_fileinfo(os.path.join(root,file))
+                        if musicid:
+                            print('File "{}" is music "{}"(id{})'.format(file,title,musicid))
+                            download_lyrics(musicid,root,trans=trans)
                         else:
-                            for obj in data:
-                                if obj['title'] == title and sum([(i in obj['artists']) for i in artists]) == len(artists):
-                                    print('File "{}" matched music "{}"(id{}).'.format(file,obj['title'],obj['mid']))
-                                    download_lyrics(matched_obj['mid'],root,trans=trans,info=obj)
-                                    break
-                                else:
+                            data = search_music(title,*artists)
+                            if not data:
+                                print('File "{}" has no match result.'.format(file))
+                                continue
+                            if fuzzy:
+                                titles_to_match = [i['title'] for i in data]
+                                match_res = fuzzy_match(title,titles_to_match)
+                                try:
+                                    matched_obj = data[titles_to_match.index(next(match_res))]
+                                    print('File "{}" matched music "{}"(id{}).'.format(file,matched_obj['title'],matched_obj['mid']))
+                                    download_lyrics(matched_obj['mid'],root,trans=trans,info=matched_obj) #因为键的命名方法一致, 所以可以直接传入
+                                except StopIteration:
                                     print('File "{}" has no match result.'.format(file))
+                            else:
+                                for obj in data:
+                                    if obj['title'] == title and sum([(i in obj['artists']) for i in artists]) == len(artists):
+                                        print('File "{}" matched music "{}"(id{}).'.format(file,obj['title'],obj['mid']))
+                                        download_lyrics(matched_obj['mid'],root,trans=trans,info=obj)
+                                        break
+                                    else:
+                                        print('File "{}" has no match result.'.format(file))
                     else:
                         continue
             else:
