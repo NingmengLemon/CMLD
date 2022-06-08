@@ -12,10 +12,13 @@ CloudMusic Lyric Downloader
 ------- | ---
 通过MusicID或Url下载歌词 | 
 通过AlbumID或Url解析专辑并下载歌词 |
-扫描文件夹并为音频文件匹配下载合适的歌词 | 模糊匹配&完全匹配，灵感来源于fb2k的某个插件
+扫描文件夹并为音频文件匹配下载合适的歌词 | 模糊匹配 & 完全匹配
 手动指定音频文件并为其匹配下载合适的歌词 | 同上 
 
-注意：匹配文件时按 163Key - Tag - 文件名 的优先级进行匹配
+注意：匹配文件时按 163Key -> Tag -> 文件名 的优先级进行匹配
+注意：歌词文件命名：artist1,artist2,...,artistn - title.lrc
+注意：歌词文件编码：UTF-8
+注意：网络错误最多重试 3 次
 
 ## 关于 163 Key：
 
@@ -29,3 +32,10 @@ CloudMusic Lyric Downloader
 
 引用项目：[TinyTag](https://github.com/devsnd/tinytag)
 
+## 关于制作动机：
+
+咱喜欢用的播放器是 Foobar2000，但咱感觉它的歌词匹配机制做得不到位，同时咱也需要在MP3上听歌，因此就想到了自己写一个lrc歌词下载器 (。・∀・)ノ
+
+然后咱发现网易云的歌词api和搜索api居然没有加密，而且网页的专辑页面的源码里可以找到预请求的专辑信息，而咱又正好会点Python，于是就开始动手了 o((>ω< ))o
+
+（其实一开始用的是[AD's API](api.imjad.cn)和[Hitokoto API](https://github.com/a632079/teng-koa/blob/master/netease.md)来着，后来发现访问困难，于是就自己去找了两个官方的w
