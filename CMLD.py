@@ -14,7 +14,7 @@ from functools import wraps
 import key163
 from tinytag import TinyTag
 
-version = '2.1.2'
+version = '2.1.2-fix'
 
 encoding = 'utf-8'
 root_window = tk.Tk()
@@ -30,7 +30,8 @@ def auto_retry(retry_time=3):
                 try:
                     return func(*args,**kwargs)
                 except Exception as e:
-                    print(e)
+                    print('Error:',e,'Retrying...')
+                    raise e
                     if _run_counter > retry_time:
                         raise e
         return wrapped
@@ -50,11 +51,15 @@ def get_info(mid):
     res = {
         'title':bs.find('em',class_='f-ff2').get_text(),
         'artists':[i.get_text() for i in bs.find_all('p',class_='des s-fc4')[0].find_all('a',class_='s-fc7')],
-        'album':bs.find_all('p',class_='des s-fc4')[1].find('a',class_='s-fc7').get_text(),
-        'album_id':int(bs.find_all('p',class_='des s-fc4')[1].find('a',class_='s-fc7').attrs['href'].split('?id=')[-1]),
         #'subtitle':bs.find('div',class_='subtit f-fs1 f-ff2').get_text(),
         'cover:':bs.find('img',class_='j-img').attrs['data-src']
         }
+    try:
+        res['album'] = bs.find_all('p',class_='des s-fc4')[1].find('a',class_='s-fc7').get_text(),
+        res['album_id'] = int(bs.find_all('p',class_='des s-fc4')[1].find('a',class_='s-fc7').attrs['href'].split('?id=')[-1])
+    except IndexError:
+        res['album'] = None
+        res['album_id'] = None
     return res
 
 @auto_retry()
