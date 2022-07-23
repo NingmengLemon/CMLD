@@ -14,7 +14,7 @@ from functools import wraps
 import key163
 from tinytag import TinyTag
 
-version = '2.1.2-fix'
+version = '2.1.3-fix'
 
 encoding = 'utf-8'
 root_window = tk.Tk()
@@ -136,17 +136,23 @@ def parse_filename(fn):
     return title,artists
 
 def get_fileinfo(file):
-    #tag
-    tags = parse_tag(file)
-    #163key
-    if tags['comment']:
-        if tags['comment'].startswith("163 key(Don't modify):"):
-            key = tags['comment'][22:]
-            key = key163.parse_163key(key)
-            return key['musicName'],[i[0] for i in key['artist']],key['musicId']
-    #common
-    if tags['title'] and tags['artist']:
-        return tags['title'],tags['artist'].split('/'),None
+    try:
+        #get tag
+        tags = parse_tag(file)
+        #163key
+        try:
+            if tags['comment']:
+                if tags['comment'].startswith("163 key(Don't modify):"):
+                    key = tags['comment'][22:]
+                    key = key163.parse_163key(key)
+                    return key['musicName'],[i[0] for i in key['artist']],key['musicId']
+        except Exception as e:
+            print('Error Occurred while handling 163 key:',str(e))
+        #tag
+        if tags['title'] and tags['artist']:
+            return tags['title'],tags['artist'].split('/'),None
+    except Exception as e:
+        print('Error Occurred while handling music tag:',str(e))
     #filename
     t,a = parse_filename(os.path.splitext(os.path.split(file)[1])[0])
     if t and a:
@@ -272,11 +278,6 @@ def main():
             else:
                 print('No album id to extract.')
         elif choice == '3':
-            match_mode = input('Fuzzy match (0) or Complete match (1):').strip() #匹配模式
-            if match_mode == '1':
-                fuzzy = False
-            else:
-                fuzzy = True
             trans = input('Original version (0) or Translated version (1):').strip() #是否翻译
             if trans == '1':
                 trans = True
@@ -299,39 +300,28 @@ def main():
                             title,artists,musicid = get_fileinfo(os.path.join(root,file))
                             if musicid:
                                 print('File "{}" is music "{}"(id{})'.format(file,title,musicid))
-                                download_lyrics(matched_obj['mid'],root,trans=trans)
+                                download_lyrics(musicid,root,trans=trans)
                             else:
-                                data = search_music(title,*artists)
+                                if artists:
+                                    data = search_music(title,*artists)
+                                else:
+                                    data = search_music(title)
                                 if not data:
                                     print('File "{}" has no match result.'.format(file))
                                     continue
-                                if fuzzy:
-                                    titles_to_match = [i['title'] for i in data]
-                                    match_res = fuzzy_match(title,titles_to_match)
-                                    try:
-                                        matched_obj = data[titles_to_match.index(next(match_res))]
-                                        print('File "{}" matched music "{}"(id{}).'.format(file,matched_obj['title'],matched_obj['mid']))
-                                        download_lyrics(matched_obj['mid'],root,trans=trans,info=matched_obj) #因为键的命名方法一致, 所以可以直接传入
-                                    except StopIteration:
-                                        print('File "{}" has no match result.'.format(file))
-                                else:
-                                    for obj in data:
-                                        if obj['title'] == title and sum([(i in obj['artists']) for i in artists]) == len(artists):
-                                            print('File "{}" matched music "{}"(id{}).'.format(file,obj['title'],obj['mid']))
-                                            download_lyrics(matched_obj['mid'],root,trans=trans,info=obj)
-                                            break
-                                        else:
-                                            print('File "{}" has no match result.'.format(file))
+                                titles_to_match = [i['title'] for i in data]
+                                match_res = fuzzy_match(title,titles_to_match)
+                                try:
+                                    matched_obj = data[titles_to_match.index(next(match_res))]
+                                    print('File "{}" matched music "{}"(id{}).'.format(file,matched_obj['title'],matched_obj['mid']))
+                                    download_lyrics(matched_obj['mid'],root,trans=trans,info=matched_obj) #因为键的命名方法一致, 所以可以直接传入
+                                except StopIteration:
+                                    print('File "{}" has no match result.'.format(file))
                         else:
                             continue
             else:
                 print('No path to scan file.')
         elif choice.lower() == '4':
-            match_mode = input('Fuzzy match (0) or Complete match (1):').strip() #匹配模式
-            if match_mode == '1':
-                fuzzy = False
-            else:
-                fuzzy = True
             trans = input('Original version (0) or Translated version (1):').strip() #是否翻译
             if trans == '1':
                 trans = True
@@ -350,27 +340,21 @@ def main():
                             print('File "{}" is music "{}"(id{})'.format(file,title,musicid))
                             download_lyrics(musicid,root,trans=trans)
                         else:
-                            data = search_music(title,*artists)
+                            if artists:
+                                data = search_music(title,*artists)
+                            else:
+                                data = search_music(title)
                             if not data:
                                 print('File "{}" has no match result.'.format(file))
                                 continue
-                            if fuzzy:
-                                titles_to_match = [i['title'] for i in data]
-                                match_res = fuzzy_match(title,titles_to_match)
-                                try:
-                                    matched_obj = data[titles_to_match.index(next(match_res))]
-                                    print('File "{}" matched music "{}"(id{}).'.format(file,matched_obj['title'],matched_obj['mid']))
-                                    download_lyrics(matched_obj['mid'],root,trans=trans,info=matched_obj) #因为键的命名方法一致, 所以可以直接传入
-                                except StopIteration:
-                                    print('File "{}" has no match result.'.format(file))
-                            else:
-                                for obj in data:
-                                    if obj['title'] == title and sum([(i in obj['artists']) for i in artists]) == len(artists):
-                                        print('File "{}" matched music "{}"(id{}).'.format(file,obj['title'],obj['mid']))
-                                        download_lyrics(matched_obj['mid'],root,trans=trans,info=obj)
-                                        break
-                                    else:
-                                        print('File "{}" has no match result.'.format(file))
+                            titles_to_match = [i['title'] for i in data]
+                            match_res = fuzzy_match(title,titles_to_match)
+                            try:
+                                matched_obj = data[titles_to_match.index(next(match_res))]
+                                print('File "{}" matched music "{}"(id{}).'.format(file,matched_obj['title'],matched_obj['mid']))
+                                download_lyrics(matched_obj['mid'],root,trans=trans,info=matched_obj) #因为键的命名方法一致, 所以可以直接传入
+                            except StopIteration:
+                                print('File "{}" has no match result.'.format(file))
                     else:
                         continue
             else:
