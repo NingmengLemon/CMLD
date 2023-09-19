@@ -135,7 +135,6 @@ def get_fileinfo(file: str) -> tuple:
 
 def save_lyrics(filename: str, path: str, lrc: str) -> None:
     # 不需要后缀名
-    filename = normalize(filename)
     filename += ".lrc"
     file = os.path.join(path, filename)
     with open(file, "w+", encoding="utf-8", errors="replace") as f:
@@ -144,9 +143,9 @@ def save_lyrics(filename: str, path: str, lrc: str) -> None:
 
 
 generate_filename = lambda title, artists: replace_char(
-    config["output"]["filename"].format(
+    normalize(config["output"]["filename"].format(
         artists=config["output"]["artist_separator"].join(artists), title=title
-    )
+    ))
 )
 # 不含后缀名
 
