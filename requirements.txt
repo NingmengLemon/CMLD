@@ -1,1 +1,4 @@
 pycryptodome
+colorama
+bs4
+brotli

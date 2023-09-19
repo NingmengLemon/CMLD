@@ -5,378 +5,511 @@ import time
 import json
 from io import BytesIO
 import winreg
-from bs4 import BeautifulSoup as BS
 import logging
-import requester
 import tkinter as tk
 from tkinter import filedialog
 from functools import wraps
-import key163
+import unicodedata
+
 from tinytag import TinyTag
+from bs4 import BeautifulSoup as BS
+import colorama
 
-version = '2.1.3-fix'
+import ncmapis
+import ncmkey
+from lrc_combiner import combine as combine_lrc
+import requester as reqer
 
-encoding = 'utf-8'
+version = "2.2.0"
+
+config = {
+    "version": version,
+    "output": {
+        "encoding": "utf-8",
+        "filename": "{artists} - {title}",
+        "artist_separator": ",",
+    },
+    "input": {
+        "filename": "{artists} - {title}",
+        "artist_separator": ",",
+    },
+    "retry_time": 3,
+}
+
 root_window = tk.Tk()
 root_window.withdraw()
+colorama.init(autoreset=True)
+valid_music_extensions = [
+    ".m4a",
+    ".mp3",
+    ".flac",
+    ".alac",
+    ".aac",
+    ".aif",
+    ".wma",
+    ".wav",
+    ".ogg",
+]
 
-def auto_retry(retry_time=3):
-    def retry_decorator(func):
-        @wraps(func)
-        def wrapped(*args,**kwargs):
-            _run_counter = 0
-            while True:
-                _run_counter += 1
-                try:
-                    return func(*args,**kwargs)
-                except Exception as e:
-                    print('Error:',e,'Retrying...')
-                    raise e
-                    if _run_counter > retry_time:
-                        raise e
-        return wrapped
-    return retry_decorator
-    
 
-def get_desktop():
-    key = winreg.OpenKey(winreg.HKEY_CURRENT_USER,'Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Shell Folders')
-    return winreg.QueryValueEx(key,"Desktop")[0]
+def normalize(text: str) -> str:
+    return replace_char(unicodedata.normalize("NFKC", text).strip())
 
-desktop = get_desktop()
 
-@auto_retry()
-def get_info(mid):
-    url = 'https://music.163.com/song?id={mid}'.format(mid=mid)
-    bs = BS(requester.get_content_str(url),'html.parser')
-    res = {
-        'title':bs.find('em',class_='f-ff2').get_text(),
-        'artists':[i.get_text() for i in bs.find_all('p',class_='des s-fc4')[0].find_all('a',class_='s-fc7')],
-        #'subtitle':bs.find('div',class_='subtit f-fs1 f-ff2').get_text(),
-        'cover':bs.find('img',class_='j-img').attrs['data-src']
-        }
-    try:
-        res['album'] = bs.find_all('p',class_='des s-fc4')[1].find('a',class_='s-fc7').get_text()
-        res['album_id'] = int(bs.find_all('p',class_='des s-fc4')[1].find('a',class_='s-fc7').attrs['href'].split('?id=')[-1])
-    except IndexError:
-        res['album'] = None
-        res['album_id'] = None
-    return res
-
-@auto_retry()
-def get_album(aid):
-    url = 'https://music.163.com/album?id={aid}'.format(aid=aid)
-    bs = BS(requester.get_content_str(url),'html.parser')
-    data = json.loads(bs.find('textarea',id='song-list-pre-data').get_text())
-    res = {
-        'music_list':[{
-            'order':i['no'],
-            'title':i['name'],
-            'mid':i['id'],
-            'artists':[a['name'] for a in i['artists']],
-            } for i in data],
-        'aid':aid,
-        'title':bs.find('h2',class_='f-ff2').get_text(),
-        'artists':[i.get_text() for i in bs.find('p',class_='intr').find_all('a',class_='s-fc7')]
-        }
-    return res
-
-@auto_retry()
-def search_music(*kws,limit=10,offset=0):
-    url = 'https://music.163.com/api/search/get/?s={}&limit={}&type=1&offset={}'.format('+'.join([requester.parse.quote(kw) for kw in kws]),limit,offset)
-    data = json.loads(requester.get_content_str(url))
-    if 'result' not in data:
-        return []
-    if 'songs' in data['result']:
-        res = [{
-            'mid':i['id'],'title':i['name'],
-            'artists':[a['name'] for a in i['artists']],
-            'album':i['album']['name'],
-            'album_id':i['album']['id']
-            #'trans_titles':i['transNames'],
-            } for i in data['result']['songs']]
-        return res
-    else:
-        return []
-
-def replace_char(text):
-    repChr = {'/':'／','*':'＊',':':'：','\\':'＼','>':'＞',
-              '<':'＜','|':'｜','?':'？','"':'＂'}
+def replace_char(text: str) -> str:
+    repChr = {
+        "/": "／",
+        "*": "＊",
+        ":": "：",
+        "\\": "＼",
+        ">": "＞",
+        "<": "＜",
+        "|": "｜",
+        "?": "？",
+        '"': "＂",
+    }
     for t in list(repChr.keys()):
-        text = text.replace(t,repChr[t])
+        text = text.replace(t, repChr[t])
     return text
 
-@auto_retry()
-def get_lyrics(mid):
-    api = f'https://music.163.com/api/song/lyric?id={str(mid)}&lv=1&kv=1&tv=-1'
-    data = json.loads(requester.get_content_str(api))
-    if 'lrc' in data:
-        lyrics = data['lrc']['lyric']
-        if 'tlyric' in data:
-            if data['tlyric']['lyric'].strip():
-                lyrics_trans = data['tlyric']['lyric']
-            else:
-                lyrics_trans = None
-        else:
-            lyrics_trans = None
-    else:
-        lyrics = lyrics_trans = None
-    return lyrics,lyrics_trans
 
-def parse_tag(file):
+def get_tag(file: str) -> dict:
     return TinyTag.get(file).as_dict()
 
-def parse_filename(fn):
-    fn = fn.split(' - ',1)
+
+def parse_filename(fn: str) -> tuple:
+    fn = fn.split(" - ", 1)
     if len(fn) == 2:
-        artists,title = fn
-        artists = artists.split(',')
+        artists, title = fn
+        artists = artists.split(",")
     else:
         title = fn[0]
         artists = []
-    return title,artists
+    return title, artists
 
-def get_fileinfo(file):
+
+def get_fileinfo(file: str) -> tuple:
+    """
+    返回元组
+    Title(str), artists(list), music_id(int)
+    未知的用 None 或 []占位
+    """
+    title = None
+    artists = []
+    music_id = None
+    # music tag
     try:
-        #get tag
-        tags = parse_tag(file)
-        #163key
-        try:
-            if tags['comment']:
-                if tags['comment'].startswith("163 key(Don't modify):"):
-                    key = tags['comment'][22:]
-                    key = key163.parse_163key(key)
-                    return key['musicName'],[i[0] for i in key['artist']],key['musicId']
-        except Exception as e:
-            print('Error Occurred while handling 163 key:',str(e))
-        #tag
-        if tags['title'] and tags['artist']:
-            return tags['title'],tags['artist'].split('/'),None
+        tags = get_tag(file)
     except Exception as e:
-        print('Error Occurred while handling music tag:',str(e))
-    #filename
-    t,a = parse_filename(os.path.splitext(os.path.split(file)[1])[0])
-    if t and a:
-        return t,a,None
-    elif t and not a and tags['title']:
-        return tags['title'],None,None
+        logging.error("Error while extracting music tag from {}: {}".format(file, e))
     else:
-        return t,None,None
+        # 163 key
+        if tags["comment"]:
+            comment = tags["comment"].strip()
+            if comment.startswith("163 key") and len(comment) > 50:
+                key = comment[22:]
+                try:
+                    data = ncmkey.parse(key)
+                except Exception as e:
+                    logging.error("Error while trying parsing 163 key: " + str(e))
+                else:
+                    logging.debug("Data from 163 key: " + str(data))
+                    if "musicName" in data:
+                        title = data["musicName"]
+                    if "artist" in data:
+                        artists = [i[0] for i in data["artist"]]
+                    if "musicId" in data:
+                        music_id = data["musicId"]
+            if tags["title"] and not title:
+                title = tags["title"]
+            if tags["artist"] and not artists:
+                artists = tags["artist"].split("/")
+    # filename
+    t, a = parse_filename(os.path.splitext(os.path.split(file)[1])[0])
+    if t and not title:
+        title = t
+    if a and not artists:
+        artists = a
+    return title, artists, music_id
 
-@auto_retry()
-def download_lyrics(mid,topath,trans=False,info=None,lrcs=None):
-    '''info和lrcs是预处理信息, 从信息获取函数获取的源数据, 为的是避免重复请求'''
+
+def save_lyrics(filename: str, path: str, lrc: str) -> None:
+    # 不需要后缀名
+    filename = normalize(filename)
+    filename += ".lrc"
+    file = os.path.join(path, filename)
+    with open(file, "w+", encoding="utf-8", errors="replace") as f:
+        f.write(lrc)
+    logging.info('Lyrics file saved to "{}" successfully '.format(file))
+
+
+generate_filename = lambda title, artists: replace_char(
+    config["output"]["filename"].format(
+        artists=config["output"]["artist_separator"].join(artists), title=title
+    )
+)
+# 不含后缀名
+
+
+# @ncmapis.auto_retry()
+def download_lyrics(
+    mid: int,
+    topath: str = None,
+    version: str = "original",
+    info: dict = None,
+    lrcs: dict = None,
+) -> int:
+    """
+    info 是预处理信息, 从 ncmapis.get_info() 获取的数据, 为的是避免重复请求
+
+    lrcs 同上, 从 ncmapis.get_lyrics() 获取的数据
+
+    version 决定下载的歌词的版本
+    - 为 ask 且 有歌词翻译 时, 会进行询问
+    - 为 original 时, 下载原歌词
+    - 为 translated 时, 下载翻译过的歌词
+    - 为 both 时, 下载两个版本的歌词 并添加文件名后缀
+    - 为 merge 时, 先下载两个版本的歌词 再用 combine_lrc 拼起来 删掉原文件
+
+    但是 若是没能获取到翻译歌词, version 会被自动改成 original
+
+    返回成功下载的歌词数量, 只可能为: 0, 1, 2 (Merge 视为 2)
+    """
+    # 收集信息
+    version = version.strip().lower()
     if info:
         pass
     else:
-        info = get_info(mid)
+        info = ncmapis.get_info(mid)
     if lrcs:
-        lrc_orig,lrc_trans = lrcs
+        lrc_orig, lrc_trans = lrcs
     else:
-        lrc_orig,lrc_trans = get_lyrics(mid)
-    if trans and lrc_trans:
-        lrc = lrc_trans
-    else:
-        lrc = lrc_orig
-    if lrc:
-        filename = replace_char('{} - {}.lrc'.format(','.join(info['artists']),info['title']))
-        with open(os.path.join(topath,filename),'w+',encoding=encoding,errors='ignore') as f:
-            f.write(lrc)
-        print('Save',filename,'>>',topath)
-    else:
-        print('Music ID',mid,'has no lyrics.')
+        lrc_orig, lrc_trans = ncmapis.get_lyrics(mid)
+    #
+    print(
+        "Music info: [",
+        colorama.Fore.CYAN + info["title"],
+        "] ID=",
+        colorama.Fore.GREEN + str(info["mid"]),
+        sep="",
+    )
+    if not lrc_orig:
+        logging.warning("Music ID {} has no lyrics".format(mid))
+        return 0
+    if not topath:
+        topath = filedialog.askdirectory(title="Specify an output path")
+        if not topath:
+            print(colorama.Fore.RED + "Unspecified output path, operation terminated.")
+            return 0
+    if version != "original" and not lrc_trans:
+        version = "original"
+        logging.warning("There's only original lyrics to download: mID {}".format(mid))
+    if version == "ask" and lrc_trans:
+        version = ask_for_version
+    #
+    if version == "original":
+        filename = generate_filename(title=info["title"], artists=info["artists"])
+        save_lyrics(filename, topath, lrc_orig)
+        return 1
+    elif version == "translated":
+        filename = generate_filename(title=info["title"], artists=info["artists"])
+        save_lyrics(filename, topath, lrc_trans)
+        return 1
+    elif version == "both":
+        filename = generate_filename(title=info["title"], artists=info["artists"])
+        save_lyrics(filename + ".original", topath, lrc_orig)
+        save_lyrics(filename + ".translated", topath, lrc_trans)
+        return 2
+    elif version == "merge":
+        filename = generate_filename(title=info["title"], artists=info["artists"])
+        save_lyrics(filename + ".original", topath, lrc_orig)
+        save_lyrics(filename + ".translated", topath, lrc_trans)
+        fm = os.path.join(topath, filename + ".original.lrc")
+        fs = os.path.join(topath, filename + ".translated.lrc")
+        combine_lrc(
+            file_main=fm, file_sub=fs, outfp=os.path.join(topath, filename + ".lrc")
+        )
+        os.remove(fm)
+        os.remove(fs)
+        return 2
 
-#https://github.com/amjith/fuzzyfinder/
+
+# https://github.com/amjith/fuzzyfinder/
 def fuzzy_match(string, collection, accessor=lambda x: x, sort_results=True):
     suggestions = []
     string = str(string) if not isinstance(string, str) else string
-    pat = '.*?'.join(map(re.escape, string))
-    pat = '(?=({0}))'.format(pat)   # lookahead regex to manage overlapping matches
+    pat = ".*?".join(map(re.escape, string))
+    pat = "(?=({0}))".format(pat)  # lookahead regex to manage overlapping matches
     regex = re.compile(pat, re.IGNORECASE)
     for item in collection:
         r = list(regex.finditer(accessor(item)))
         if r:
-            best = min(r, key=lambda x: len(x.group(1)))   # find shortest match
+            best = min(r, key=lambda x: len(x.group(1)))  # find shortest match
             suggestions.append((len(best.group(1)), best.start(), accessor(item), item))
     if sort_results:
         return (z[-1] for z in sorted(suggestions))
     else:
         return (z[-1] for z in sorted(suggestions, key=lambda x: x[:2]))
 
-def walk_topfolder(path): #返回的数据结构与os.walk保持一致
+
+def walk_topfolder(path: str):
+    # 返回的数据结构与os.walk()保持一致
     dirs = os.listdir(path)
     files = []
     folders = []
     for d in dirs:
-        if os.path.isfile(os.path.join(path,d)):
+        if os.path.isfile(os.path.join(path, d)):
             files.append(d)
-        elif os.path.isdir(os.path.join(path,d)):
+        elif os.path.isdir(os.path.join(path, d)):
             folders.append(d)
-    yield path,folders,files
-            
+    yield path, folders, files
 
-def main():
-    global encoding
-    print('Welcome to CMLD.')
-    print('Current Version:',version)
+
+def menu(text: str, option_table: dict, dist_case: bool = True) -> str:
+    """
+    option_table:
+    { user_input(str): option_text(str) }
+    """
+    print("")
+    possi_input = list(option_table.keys())
+    if not dist_case:
+        possi_input = [i.lower() for i in possi_input]
+    print(text)
+    for k, v in option_table.items():
+        print(" (", colorama.Fore.CYAN + k, ")", v, sep="")
     while True:
-        choice = input('\nChoose one option to start.'\
-                       '\n (1)Download lyrics via music id.'\
-                       '\n (2)Parse album via album id and download lyrics of each music.'\
-                       '\n (3)Scan local folder and download lyrics of each music file according to their filenames.'\
-                       '\n (4)Choose some files in person and download lyrics for them according to thier filenames.'\
-                       '\nChoice:').strip()
-        if choice == '1':
-            source = input('Music ID or Url:').strip()
-            if source.isdigit():
-                music_id = int(source)
+        choice = input("Choice:").strip()
+        if not dist_case:
+            choice = choice.lower()
+        if choice in possi_input:
+            return choice
+        else:
+            print(colorama.Fore.RED + "Unexpected input. Make choice again.")
+
+
+ask_for_version = lambda: {
+    "1": "original",
+    "2": "translated",
+    "3": "both",
+    "4": "merge",
+}[
+    menu(
+        "Choose lyrics version.",
+        {
+            "1": "Original",
+            "2": "Translated",
+            "3": "Both (Version Suffix will be added)",
+            "4": "Merge (A double-languaged lrc file will be created)",
+        },
+    )
+]
+
+
+def extract_id(text: str) -> tuple:
+    i = re.findall(r"[^a-zA-Z]id\=([0-9]+)", text, flags=re.I)
+    if i and "/song?" in text:
+        return int(i[0]), "music_id"
+    if i and "/album?" in text:
+        return int(i[0]), "album_id"
+    return -1, "unknown"
+
+
+def download_via_music_id() -> None:
+    source = input("Music ID or URL:").strip()
+    if source.isdigit():
+        music_id = int(source)
+    else:
+        id_, type_ = extract_id(source)
+        if type_ == "music_id":
+            music_id = id_
+        else:
+            print(colorama.Fore.RED + "Unrecognized Input:", source)
+            return
+    if music_id > 0:
+        # topath = filedialog.askdirectory(title='Specify an output path')
+        download_lyrics(music_id, topath=None, version="ask")
+        print("Done!")
+    else:
+        print(colorama.Fore + "Invalid Music ID: %s" % music_id)
+
+
+def download_via_album_id() -> None:
+    source = input("Album ID or URL:").strip()
+    if source.isdigit():
+        album_id = int(source)
+    else:
+        id_, type_ = extract_id(source)
+        if type_ == "album_id":
+            album_id = id_
+        else:
+            print(colorama.Fore.RED + "Unrecognized Input:", source)
+            return
+    if album_id > 0:
+        topath = filedialog.askdirectory(title="Specify an output path")
+        if topath:
+            data = ncmapis.get_album(album_id)
+            print(
+                "Album Info: [",
+                colorama.Fore.CYAN + data["title"],
+                "] ID=",
+                colorama.Fore.GREEN + str(data["aid"]),
+                sep="",
+            )
+            default_version = ask_for_version()
+            for music in data["music_list"]:
+                download_lyrics(
+                    music["mid"], topath=topath, version=default_version, info=music
+                )
+            print("Done!")
+        else:
+            print(colorama.Fore.RED + "Unspecified output path, operation terminated.")
+    else:
+        print(colorama.Fore + "Invalid Album ID: %s" % album_id)
+
+
+def match_music(root: str, file: str) -> tuple:
+    """
+    返回 一个元组 或 None
+
+    元组: (music_id(int), info(dict))
+
+    元组中的 info 可能为 None
+    """
+    base, extension = os.path.splitext(file)
+    if extension.lower() in valid_music_extensions:
+        title, artists, musicid = get_fileinfo(os.path.join(root, file))
+        if musicid:
+            print(
+                'File "',
+                colorama.Fore.CYAN + file,
+                '" is [',
+                colorama.Fore.CYAN + title,
+                "] ID=",
+                colorama.Fore.GREEN + str(musicid),
+                sep="",
+            )
+            return (musicid, {"title": title, "artists": artists, "mid": musicid})
+        else:
+            if artists:
+                data = ncmapis.search_music(title, *artists)
             else:
-                i = re.findall(r'[^a-zA-Z]id\=([0-9]+)',source,flags=re.I)
-                if i and '/song?' in source:
-                    music_id = int(i[0])
-                else:
-                    music_id = None
-            if music_id:
-                lrc_orig,lrc_trans = get_lyrics(music_id)
-                topath = filedialog.askdirectory(title='Choose Output Path')
-                if topath:
-                    if lrc_orig and lrc_trans:
-                        trans = input('Original version (0) or Translated version (1):').strip()
-                        if trans == '1':
-                            download_lyrics(music_id,topath,trans=True,lrcs=(lrc_orig,lrc_trans))
-                        else:
-                            download_lyrics(music_id,topath,trans=False,lrcs=(lrc_orig,lrc_trans))
-                    elif lrc_orig and not lrc_trans:
-                        download_lyrics(music_id,topath,trans=False,lrcs=(lrc_orig,lrc_trans))
-                    else:
-                        print('No lyrics to download.')
+                data = ncmapis.search_music(title)
+            if not data:
+                print(
+                    colorama.Fore.YELLOW + 'File "{}" has no match result.'.format(file)
+                )
+                return None
+            titles_to_match = [i["title"] for i in data]
+            match_res = fuzzy_match(title, titles_to_match)
+            try:
+                matched_obj = data[titles_to_match.index(next(match_res))]
+                print(
+                    'File "',
+                    colorama.Fore.CYAN + file,
+                    '" matched [',
+                    colorama.Fore.CYAN + matched_obj["title"],
+                    "] ID=",
+                    colorama.Fore.GREEN + str(matched_obj["mid"]),
+                    sep="",
+                )
+                return (matched_obj["mid"], matched_obj)
+            except StopIteration:
+                print(
+                    colorama.Fore.YELLOW + 'File "{}" has no match result.'.format(file)
+                )
+                return None
+    else:
+        print(
+            colorama.Fore.YELLOW + 'File "{}" is not supported music file.'.format(file)
+        )
+        return None
+
+
+def download_via_scanning() -> None:
+    path = filedialog.askdirectory(title="Specify a folder to scan")
+    if not path:
+        print(colorama.Fore.RED + "Unspecified scanning path, operation terminated.")
+        return
+    counter = 0
+    default_version = ask_for_version()
+    for root, folders, files in {"1": walk_topfolder, "2": os.walk}[
+        menu("Choose scanning depth.", {"1": "Top folder only", "2": "All"})
+    ](path):
+        for file in files:
+            match_res = match_music(root, file)
+            counter += 1
+            if match_res:
+                mid, info = match_res
+                download_lyrics(mid, root, version=default_version, info=info)
             else:
-                print('No music id to extract.')
-        elif choice == '2':
-            source = input('Album ID or Url:')
-            if source.isdigit():
-                album_id = int(source)
-            else:
-                i = re.findall(r'[^a-zA-Z]id\=([0-9]+)',source,flags=re.I)
-                if i and '/album?' in source:
-                    album_id = int(i[0])
-                else:
-                    album_id = None
-            if album_id:
-                trans = input('Original version (0) or Translated version (1):').strip()
-                if trans == '1':
-                    trans = True
-                else:
-                    trans = False
-                topath = filedialog.askdirectory(title='Choose Output Path')
-                if topath:
-                    print('Working...')
-                    album = get_album(album_id)
-                    for item in album['music_list']:
-                        download_lyrics(item['mid'],topath=topath,trans=trans)
-                else:
-                    print('No path to release files.')
-            else:
-                print('No album id to extract.')
-        elif choice == '3':
-            trans = input('Original version (0) or Translated version (1):').strip() #是否翻译
-            if trans == '1':
-                trans = True
-            else:
-                trans = False
-            toponly = input('Top folder only (0) or All file tree (1):').strip()
-            if toponly == '1':
-                toponly = False
-            else:
-                toponly = True
-            workdir = filedialog.askdirectory(title='Choose Path to Scan') #
-            if workdir:
-                print('Working...')
-                loop_counter = 0
-                for root,folders,files in {False:os.walk,True:walk_topfolder}[toponly](workdir):
-                    for file in files:
-                        loop_counter += 1
-                        base,extension = os.path.splitext(file)
-                        if extension.lower() in ['.m4a','.mp3','.flac','.aac','.ape','.wma']:
-                            title,artists,musicid = get_fileinfo(os.path.join(root,file))
-                            if musicid:
-                                print('File "{}" is music "{}"(id{})'.format(file,title,musicid))
-                                download_lyrics(musicid,root,trans=trans)
-                            else:
-                                if artists:
-                                    data = search_music(title,*artists)
-                                else:
-                                    data = search_music(title)
-                                if not data:
-                                    print('File "{}" has no match result.'.format(file))
-                                    continue
-                                titles_to_match = [i['title'] for i in data]
-                                match_res = fuzzy_match(title,titles_to_match)
-                                try:
-                                    matched_obj = data[titles_to_match.index(next(match_res))]
-                                    print('File "{}" matched music "{}"(id{}).'.format(file,matched_obj['title'],matched_obj['mid']))
-                                    download_lyrics(matched_obj['mid'],root,trans=trans,info=matched_obj) #因为键的命名方法一致, 所以可以直接传入
-                                except StopIteration:
-                                    print('File "{}" has no match result.'.format(file))
-                        else:
-                            continue
-            else:
-                print('No path to scan file.')
-        elif choice.lower() == '4':
-            trans = input('Original version (0) or Translated version (1):').strip() #是否翻译
-            if trans == '1':
-                trans = True
-            else:
-                trans = False
-            targets = filedialog.askopenfilenames(title='Choose some files to match.') #
-            if targets:
-                loop_counter = 0
-                for fullpath in targets:
-                    loop_counter += 1
-                    root,file = os.path.split(fullpath)
-                    base,extension = os.path.splitext(file)
-                    if extension.lower() in ['.m4a','.mp3','.flac','.aac','.ape','.wma']:
-                        title,artists,musicid = get_fileinfo(os.path.join(root,file))
-                        if musicid:
-                            print('File "{}" is music "{}"(id{})'.format(file,title,musicid))
-                            download_lyrics(musicid,root,trans=trans)
-                        else:
-                            if artists:
-                                data = search_music(title,*artists)
-                            else:
-                                data = search_music(title)
-                            if not data:
-                                print('File "{}" has no match result.'.format(file))
-                                continue
-                            titles_to_match = [i['title'] for i in data]
-                            match_res = fuzzy_match(title,titles_to_match)
-                            try:
-                                matched_obj = data[titles_to_match.index(next(match_res))]
-                                print('File "{}" matched music "{}"(id{}).'.format(file,matched_obj['title'],matched_obj['mid']))
-                                download_lyrics(matched_obj['mid'],root,trans=trans,info=matched_obj) #因为键的命名方法一致, 所以可以直接传入
-                            except StopIteration:
-                                print('File "{}" has no match result.'.format(file))
-                    else:
-                        continue
-            else:
-                print('No file to match..')
-        elif choice.lower() == 'cls':
-            os.system('cls')
-        elif choice.lower() == 'config':
-            option = input('Config Menu\n'\
-                           ' (1)Encoding\n'\
-                           'Choice:').strip().lower()
-            if option == '1':
-                print('Current Encoding:',encoding)
-                new_enc = input('New Encoding:').strip().lower()
-                if new_enc:
-                    encoding = new_enc
-            
-            
-if __name__ == '__main__':
-    if '-debug' in sys.argv:
-        logging.basicConfig(format='[%(asctime)s][%(levelname)s]%(message)s',
-                            datefmt='%Y-%m-%d %H:%M:%S',
-                            level=logging.DEBUG
-                            )
-        print('-Debug Mode-')
+                continue
+    print("Tried handling {} file(s) in total.".format(counter))
+
+
+def download_via_specifying() -> None:
+    files = filedialog.askopenfilenames(title="Choose some files to match.")  #
+    if not files:
+        print(colorama.Fore.RED + "No specified file, operation terminated.")
+        return
+    default_version = ask_for_version()
+    # print("{} file(s) will be checked soon.".format(len(files)))
+    counter = 0
+    for fullpath in files:
+        root, file = os.path.split(fullpath)
+        match_res = match_music(root, file)
+        counter += 1
+        if match_res:
+            mid, info = match_res
+            download_lyrics(mid, root, version=default_version, info=info)
+        else:
+            continue
+    print("Tried handling {} file(s) in total.".format(counter))
+
+
+def main() -> None:
+    global config
+    print("Welcome to", colorama.Fore.LIGHTRED_EX + "CMLD.")
+    print(
+        "I mean,",
+        "(Netease)",
+        colorama.Fore.CYAN + "Cloud Music Lyrics Downloader",
+        colorama.Fore.LIGHTBLACK_EX + "XD",
+    )
+    print("\nCurrent Version:", version, "\n")
+    while True:
+        choice = menu(
+            "Choose one option to get started.",
+            {
+                "1": "Download lyrics via Music ID.",
+                "2": "Download lyrics of each music in an album via Album ID.",
+                "3": "Automatically scan local folder and download lyrics for each music file.",
+                "4": "Choose music files in person and download lyrics for them.",
+                "Q": "Quit",
+                "C": "Config",
+            },
+            False,
+        )
+        # print(choice)
+        if choice == "1":
+            download_via_music_id()
+        elif choice == "2":
+            download_via_album_id()
+        elif choice == "3":
+            download_via_scanning()
+        elif choice == "4":
+            download_via_specifying()
+        elif choice == "q":
+            sys.exit(0)
+        elif choice == "c":
+            print("Configuration module is being building, sorry...")
+
+
+if __name__ == "__main__":
+    if "-debug" in sys.argv:
+        logging.basicConfig(
+            format="%(asctime)s - %(levelname)s - %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+            level=logging.DEBUG,
+        )
+        print(colorama.Fore.LIGHTBLACK_EX + "-- Debug Mode --")
     main()

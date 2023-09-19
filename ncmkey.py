@@ -3,6 +3,9 @@ from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad
 import json
 
+__all__ = ["parse"]
+
+
 # https://blog.csdn.net/qq_45664055/article/details/123348485
 class EncryptDate:
     def __init__(self, key):
@@ -13,11 +16,11 @@ class EncryptDate:
         # 初始化AES,ECB模式的实例
         self.aes = AES.new(self.key.encode("utf-8"), AES.MODE_ECB)
         # 截断函数，去除填充的字符
-        self.unpad = lambda date: date[0:-ord(date[-1])]
+        self.unpad = lambda date: date[0 : -ord(date[-1])]
 
     def fill_method(self, aes_str):
-        '''pkcs7补全'''
-        pad_pkcs7 = pad(aes_str.encode('utf-8'), AES.block_size, style='pkcs7')
+        """pkcs7补全"""
+        pad_pkcs7 = pad(aes_str.encode("utf-8"), AES.block_size, style="pkcs7")
 
         return pad_pkcs7
 
@@ -37,8 +40,9 @@ class EncryptDate:
 
         return self.unpad(msg)
 
+
 _e = EncryptDate(key="#14ljk_!\]&0U<'(")
 
-def parse_163key(key):
-    return json.loads(_e.decrypt(key)[6:])
 
+def parse(key: str) -> dict:
+    return json.loads(_e.decrypt(key)[6:])
