@@ -204,7 +204,7 @@ def download_lyrics(
         version = "original"
         logging.warning("There's only original lyrics to download: mID {}".format(mid))
     if version == "ask" and lrc_trans:
-        version = ask_for_version
+        version = ask_for_version()
     #
     if version == "original":
         filename = generate_filename(title=info["title"], artists=info["artists"])
