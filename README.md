@@ -46,6 +46,6 @@ wyy音乐歌词下载器
 
 然后咱发现网易云的歌词 API 和搜索 API 没有加密，而且网页的专辑页面的源代码里可以找到预请求的专辑信息，而咱又正好会点 Python，于是就开始动手了 o((>ω< ))o
 
-（其实一开始用的是 [AD's API](api.imjad.cn) 和 [Hitokoto API](https://github.com/a632079/teng-koa/blob/master/netease.md) 来着，后来发现访问困难，于是就自己去找了两个官方的w
+（其实一开始用的是 [AD's API](https://api.imjad.cn) 和 [Hitokoto API](https://github.com/a632079/teng-koa/blob/master/netease.md) 来着，后来发现访问困难，于是就自己去找了两个官方的w
 
 再然后我开始使用 [椒盐音乐](https://github.com/Moriafly/SaltPlayerSource) 作为手机上的播放器，并发现它有 [读取带翻译的歌词文件的功能](https://moriafly.xyz/HiMoriafly/docs/salt-player/lyrics#%E6%AD%8C%E8%AF%8D%E7%BF%BB%E8%AF%91)，再加上之前写的史山自己都忍不了了，于是进行了一个重构 (/▽＼)
