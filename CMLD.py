@@ -1,26 +1,23 @@
 import os
 import re
 import sys
-import time
-import json
-from io import BytesIO
-import winreg
 import logging
 import tkinter as tk
 from tkinter import filedialog
-from functools import wraps
 import unicodedata
+import typing
 
 from tinytag import TinyTag
 from bs4 import BeautifulSoup as BS
 import colorama
+from retry import retry
 
 import ncmapis
 import ncmkey
-from lrc_combiner import combine as combine_lrc
+from lrchandler import combine as combine_lrc
 import requester as reqer
 
-version = "2.2.0"
+version = "2.2.1"
 
 config = {
     "version": version,
@@ -49,6 +46,7 @@ valid_music_extensions = [
     ".wma",
     ".wav",
     ".ogg",
+    ".opus",
 ]
 
 
@@ -88,10 +86,11 @@ def parse_filename(fn: str) -> tuple:
     return title, artists
 
 
-def get_fileinfo(file: str) -> tuple:
+def get_fileinfo(file: str) -> typing.Tuple[str, typing.List[str], int]:
     """
     返回元组
     Title(str), artists(list), music_id(int)
+
     未知的用 None 或 []占位
     """
     title = None
@@ -123,7 +122,7 @@ def get_fileinfo(file: str) -> tuple:
             if tags["title"] and not title:
                 title = tags["title"]
             if tags["artist"] and not artists:
-                artists = tags["artist"].split("/")
+                artists = re.split(r'[/\0]', tags["artist"])
     # filename
     t, a = parse_filename(os.path.splitext(os.path.split(file)[1])[0])
     if t and not title:
@@ -151,13 +150,14 @@ generate_filename = lambda title, artists: replace_char(
 
 
 # @ncmapis.auto_retry()
+@retry(exceptions=(PermissionError), tries=3, delay=0.5)
 def download_lyrics(
     mid: int,
     topath: str = None,
-    version: str = "original",
+    version: typing.Literal["ask","original","translated","both","merge"] = "original",
     info: dict = None,
     lrcs: dict = None,
-) -> int:
+) -> typing.Literal[0,1,2]:
     """
     info 是预处理信息, 从 ncmapis.get_info() 获取的数据, 为的是避免重复请求
 
@@ -225,9 +225,8 @@ def download_lyrics(
         save_lyrics(filename + ".translated", topath, lrc_trans)
         fm = os.path.join(topath, filename + ".original.lrc")
         fs = os.path.join(topath, filename + ".translated.lrc")
-        combine_lrc(
-            file_main=fm, file_sub=fs, outfp=os.path.join(topath, filename + ".lrc")
-        )
+        with open(os.path.join(topath, filename + ".lrc"), 'w+', encoding='utf-8') as f:
+            f.write(combine_lrc(lrc_main=fm, lrc_sub=fs))
         os.remove(fm)
         os.remove(fs)
         return 2
@@ -304,7 +303,7 @@ ask_for_version = lambda: {
 ]
 
 
-def extract_id(text: str) -> tuple:
+def extract_id(text: str) -> typing.Tuple[int, typing.Literal["music_id", "album_id", "unknown"]]:
     i = re.findall(r"[^a-zA-Z]id\=([0-9]+)", text, flags=re.I)
     if i and "/song?" in text:
         return int(i[0]), "music_id"
@@ -346,6 +345,7 @@ def download_via_album_id() -> None:
     if album_id > 0:
         topath = filedialog.askdirectory(title="Specify an output path")
         if topath:
+            print("Specified output:", topath)
             data = ncmapis.get_album(album_id)
             print(
                 "Album Info: [",
@@ -366,7 +366,7 @@ def download_via_album_id() -> None:
         print(colorama.Fore + "Invalid Album ID: %s" % album_id)
 
 
-def match_music(root: str, file: str) -> tuple:
+def match_music(root: str, file: str) -> typing.Union[typing.Tuple[int, typing.Union[dict, None]], None]:
     """
     返回 一个元组 或 None
 
@@ -451,7 +451,7 @@ def download_via_specifying() -> None:
         print(colorama.Fore.RED + "No specified file, operation terminated.")
         return
     default_version = ask_for_version()
-    # print("{} file(s) will be checked soon.".format(len(files)))
+    print("{} file(s) will be checked soon.".format(len(files)))
     counter = 0
     for fullpath in files:
         root, file = os.path.split(fullpath)
@@ -504,7 +504,7 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    if "-debug" in sys.argv:
+    if "--debug" in sys.argv:
         logging.basicConfig(
             format="%(asctime)s - %(levelname)s - %(message)s",
             datefmt="%Y-%m-%d %H:%M:%S",

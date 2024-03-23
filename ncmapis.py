@@ -10,6 +10,7 @@ from functools import wraps
 from urllib import parse
 
 from bs4 import BeautifulSoup as BS
+from retry import retry
 
 import requester as reqer
 
@@ -36,7 +37,8 @@ def auto_retry(retry_time: int = retry_time):
     return retry_decorator
 
 
-@auto_retry()
+# @auto_retry()
+@retry(tries=retry_time, delay=0.5)
 def get_info(mid: int) -> dict:
     url = "https://music.163.com/song?id={mid}".format(mid=mid)
     bs = BS(reqer.get_str(url), "html.parser")
@@ -68,7 +70,8 @@ def get_info(mid: int) -> dict:
     return res
 
 
-@auto_retry()
+# @auto_retry()
+@retry(tries=retry_time, delay=0.5)
 def get_album(aid: int) -> dict:
     url = "https://music.163.com/album?id={aid}".format(aid=aid)
     bs = BS(reqer.get_str(url), "html.parser")
@@ -93,7 +96,8 @@ def get_album(aid: int) -> dict:
     return res
 
 
-@auto_retry()
+# @auto_retry()
+@retry(tries=retry_time, delay=0.5)
 def search_music(*kws, limit: int = 10, offset: int = 0) -> dict:
     url = "https://music.163.com/api/search/get/?s={}&limit={}&type=1&offset={}".format(
         "+".join([parse.quote(kw) for kw in kws]), limit, offset
@@ -118,13 +122,14 @@ def search_music(*kws, limit: int = 10, offset: int = 0) -> dict:
         return []
 
 
-@auto_retry()
+# @auto_retry()
+@retry(tries=retry_time, delay=0.5)
 def get_lyrics(mid: int) -> tuple:
     """
     返回一个元组, 第一个项是原文, 第二个项是翻译
     没有的用 None 占位
     """
-    api = f"https://music.163.com/api/song/lyric?id={str(mid)}&lv=1&kv=1&tv=-1"
+    api = f"https://music.163.com/api/song/lyric?id={str(mid)}&lv=-1&kv=-1&tv=-1"
     data = json.loads(reqer.get_str(api))
     if "lrc" in data:
         lyrics = data["lrc"]["lyric"]
