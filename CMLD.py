@@ -72,7 +72,7 @@ def replace_char(text: str) -> str:
 
 
 def get_tag(file: str) -> dict:
-    return TinyTag.get(file).as_dict()
+    return TinyTag.get(file)._as_dict()
 
 
 def parse_filename(fn: str) -> tuple:
