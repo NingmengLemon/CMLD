@@ -1,48 +1,24 @@
 import base64
-from Crypto.Cipher import AES
-from Crypto.Util.Padding import pad
 import json
 
-__all__ = ["parse"]
+from Cryptodome.Cipher import AES
+
+__all__ = ["decrypt"]
+
+NCM_DEC_KEY = "#14ljk_!\\]&0U<'("
+CRYPTOR = AES.new(NCM_DEC_KEY.encode("utf-8"), AES.MODE_ECB)
 
 
-# https://blog.csdn.net/qq_45664055/article/details/123348485
-class EncryptDate:
-    def __init__(self, key):
-        # 初始化密钥
-        self.key = key
-        # 初始化数据块大小
-        self.length = AES.block_size
-        # 初始化AES,ECB模式的实例
-        self.aes = AES.new(self.key.encode("utf-8"), AES.MODE_ECB)
-        # 截断函数，去除填充的字符
-        self.unpad = lambda date: date[0 : -ord(date[-1])]
-
-    def fill_method(self, aes_str):
-        """pkcs7补全"""
-        pad_pkcs7 = pad(aes_str.encode("utf-8"), AES.block_size, style="pkcs7")
-
-        return pad_pkcs7
-
-    def encrypt(self, encrData):
-        # 加密函数,使用pkcs7补全
-        res = self.aes.encrypt(self.fill_method(encrData))
-        # 转换为base64
-        msg = str(base64.b64encode(res), encoding="utf-8")
-
-        return msg
-
-    def decrypt(self, decrData):
-        # base64解码
-        res = base64.decodebytes(decrData.encode("utf-8"))
-        # 解密函数
-        msg = self.aes.decrypt(res).decode("utf-8")
-
-        return self.unpad(msg)
+def decrypt(key: str) -> dict:
+    key = key.strip().removeprefix("163 key(Don't modify):").strip()
+    raw = base64.b64decode(key.encode(encoding="utf-8"))
+    dec = CRYPTOR.decrypt(raw).decode(encoding="utf-8")[6:]
+    meta = json.loads(dec[: dec.rfind("}") + 1])
+    return meta
 
 
-_e = EncryptDate(key="#14ljk_!\]&0U<'(")
+SAMPLE_KEY = "L64FU3W4YxX3ZFTmbZ+8/fMZ5HO+EQE0d1hry/01n1imgJAjwEU1sIK3DunPCv8JIDfFiwO6gpGCI/omCPk6o+iyDgemCERB74r1dmvVr8Wbogz195VQ2TusMWpQYrr4hv/5sNK3RLF63c1W6YvLbyvK6F1ZqljV++8nuxUKMajm+9C5eM6uLnnXsqxoZ7z6YaVNWdj+A3FGInsVRPMIxls7Lz9KplmWAGoRrSj/P2lheZZvLdikmlDL64LPYugLkxcTQfHFwdDa3NDBPsBwgNldMjhmdKGHER7CrMKF16c+IIias7TFLviRxlj1RDghodu6aXmBkJFBWP8l+2zsTlxS+EaX64C2/+fAQ7mfvO4FZvxwKtRKs+o5oQ2tsNJSvdTNTzUv8ByWjQAEvlmpzRUFACo2gQuRRis/3UGGpp78C/oUnwwIsHvW3oczICzgQBqC8V3o4OHTuKyaqOM3rb6j3NYr7FgyLwLqKc5lJlW8XfeKKdsSJkQCD4MLZqMC/hmTRvL/Ob7ebNgLIGdmL5ClgoxqZ2mphA5EFWWFZydpvvxRrsv8frGMDb/Hd/EdB11TFPcrhCcM9Vd5l+xznQ=="
 
-
-def parse(key: str) -> dict:
-    return json.loads(_e.decrypt(key)[6:])
+if __name__ == "__main__":
+    info = decrypt(SAMPLE_KEY)
+    print(json.dumps(info, ensure_ascii=False, indent=4))

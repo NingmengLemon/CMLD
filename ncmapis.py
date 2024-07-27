@@ -1,47 +1,33 @@
-import os
-import re
-import sys
-import time
 import json
-from io import BytesIO
-import winreg
-import logging
-from functools import wraps
 from urllib import parse
+import requests
 
 from bs4 import BeautifulSoup as BS
 from retry import retry
 
-import requester as reqer
+RETRY_TIME = 3
 
-retry_time = 3
+HEADERS = {
+    "Host": "music.163.com",
+    "Referer": "https://music.163.com/",
+    "User-Agent": "Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/55.0.2883.87 Safari/537.36",
+}
 
+global_session = requests.Session()
 
-def auto_retry(retry_time: int = retry_time):
-    def retry_decorator(func):
-        @wraps(func)
-        def wrapped(*args, **kwargs):
-            _run_counter = 0
-            while True:
-                _run_counter += 1
-                try:
-                    return func(*args, **kwargs)
-                except Exception as e:
-                    print("Error:", e, "Retrying...")
-                    # raise e
-                    if _run_counter > retry_time:
-                        raise e
+def get_str(url, headers=None, session=None, **kwargs):
+    if headers is None:
+        kwargs["headers"] = HEADERS.copy()
+    kwargs.setdefault("timeout", 10)
+    session = global_session if session is None else session
+    with session.get(url, **kwargs) as resp:
+        resp.raise_for_status()
+        return resp.text
 
-        return wrapped
-
-    return retry_decorator
-
-
-# @auto_retry()
-@retry(tries=retry_time, delay=0.5)
+@retry(tries=RETRY_TIME, delay=0.5)
 def get_info(mid: int) -> dict:
     url = "https://music.163.com/song?id={mid}".format(mid=mid)
-    bs = BS(reqer.get_str(url), "html.parser")
+    bs = BS(get_str(url), "html.parser")
     res = {
         "title": bs.find("em", class_="f-ff2").get_text(),
         "artists": [
@@ -70,11 +56,10 @@ def get_info(mid: int) -> dict:
     return res
 
 
-# @auto_retry()
-@retry(tries=retry_time, delay=0.5)
+@retry(tries=RETRY_TIME, delay=0.5)
 def get_album(aid: int) -> dict:
     url = "https://music.163.com/album?id={aid}".format(aid=aid)
-    bs = BS(reqer.get_str(url), "html.parser")
+    bs = BS(get_str(url), "html.parser")
     data = json.loads(bs.find("textarea", id="song-list-pre-data").get_text())
     res = {
         "music_list": [
@@ -96,46 +81,43 @@ def get_album(aid: int) -> dict:
     return res
 
 
-# @auto_retry()
-@retry(tries=retry_time, delay=0.5)
+@retry(tries=RETRY_TIME, delay=0.5)
 def search_music(*kws, limit: int = 10, offset: int = 0) -> dict:
     url = "https://music.163.com/api/search/get/?s={}&limit={}&type=1&offset={}".format(
         "+".join([parse.quote(kw) for kw in kws]), limit, offset
     )
-    data = json.loads(reqer.get_str(url))
+    data = json.loads(get_str(url))
     if "result" not in data:
         return []
-    if "songs" in data["result"]:
-        res = [
-            {
-                "mid": i["id"],
-                "title": i["name"],
-                "artists": [a["name"] for a in i["artists"]],
-                "album": i["album"]["name"],
-                "album_id": i["album"]["id"]
-                #'trans_titles':i['transNames'],
-            }
-            for i in data["result"]["songs"]
-        ]
-        return res
-    else:
+    if "songs" not in data["result"]:
         return []
+    res = [
+        {
+            "mid": i["id"],
+            "title": i["name"],
+            "artists": [a["name"] for a in i["artists"]],
+            "album": i["album"]["name"],
+            "album_id": i["album"]["id"],
+            #'trans_titles':i['transNames'],
+        }
+        for i in data["result"]["songs"]
+    ]
+    return res
 
 
-# @auto_retry()
-@retry(tries=retry_time, delay=0.5)
+@retry(tries=RETRY_TIME, delay=0.5)
 def get_lyrics(mid: int) -> tuple:
     """
     返回一个元组, 第一个项是原文, 第二个项是翻译
     没有的用 None 占位
     """
     api = f"https://music.163.com/api/song/lyric?id={str(mid)}&lv=-1&kv=-1&tv=-1"
-    data = json.loads(reqer.get_str(api))
+    data = json.loads(get_str(api))
     if "lrc" in data:
         lyrics = data["lrc"]["lyric"]
         if "tlyric" in data:
-            if data["tlyric"]["lyric"].strip():
-                lyrics_trans = data["tlyric"]["lyric"]
+            if tl := data["tlyric"]["lyric"].strip():
+                lyrics_trans = tl
             else:
                 lyrics_trans = None
         else:

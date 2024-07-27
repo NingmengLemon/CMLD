@@ -3,10 +3,10 @@ import typing
 import os
 import copy
 
-from zhconv import convert 
+from zhconv import convert
 
 
-class LrcHandler(object):
+class LrcHandler:
     TIMETAG_REGEX = r"\[\s*([0-9]+)\s*\:\s*([0-9]{2})\s*[\.\:]\s*([0-9]+)\s*\]"
 
     EXTRATAG_REGEX = r"\[\s*([a-zA-Z]{,5})\s*\:\s*(.+?)\s*\]"
@@ -67,8 +67,8 @@ class LrcHandler(object):
             line = re.sub(cls.TIMETAG_REGEX, "", line)
             for timetag in timetags:
                 m, s, cs = timetag
-                timetag = round(int(m) * 60 + float(s + "." + cs), 3)
-                result.append((timetag + offset, line))
+                timetag = round(int(m) * 60 + float(s + "." + cs)+offset, 2)
+                result.append((timetag, line))
 
         return sorted(result, key=lambda x: x[0]), extra
 
@@ -84,7 +84,7 @@ def combine(
         lrc_main = LrcHandler(lrc_main)
     if isinstance(lrc_sub, (str, bytes)):
         lrc_sub = LrcHandler(lrc_sub)
-        
+
     d_sub = lrc_sub.dict
     result = ""
     for k, v in lrc_main.content:
@@ -93,10 +93,7 @@ def combine(
             result += "\n[%s]%s" % (LrcHandler.second2time(k), convert(d_sub[k],'zh-cn'))
     return result
 
-
-if __name__ == "__main__":
-    # multi-timetags in one line
-    test_lrc = """
+TEST_LRC = """
 [00:01.83](Prelude)
 [02:36.60][02:33.58][02:30.55][02:27.50][02:24.42][02:21.39][02:18.51][02:15.32][02:12.43][02:09.27][02:06.27][02:03.15][02:00.16][01:57.11][01:54.11][01:25.16][01:22.13][01:19.13][01:16.12][01:13.50][01:10.40][01:06.95][01:03.94][00:35.60][00:32.90][00:28.98][00:25.93][00:22.89][00:19.84][00:16.85][00:13.85][00:10.83][00:07.68]ファミ ファミ ファミーマ ファミファミマー
 [02:16.62][01:52.54][01:02.50][00:12.25]ワン、ツー、三、四
@@ -110,8 +107,10 @@ if __name__ == "__main__":
 [01:37.37]ランチはこ↑こ↓ って决めてるの
 [01:46.48]レンジ向かう後ろ姿
 [02:39.66]ファミファミファミーマッファー ミー ファー ミー マー"""
-    handler = LrcHandler(test_lrc)
-    for line in handler:
-        print(*line)
+if __name__ == "__main__":
+    # multi-timetags in one line
+    handler = LrcHandler(TEST_LRC)
+    for line_ in handler:
+        print(*line_)
     # combine test
     print(combine("./original.lrc", "./translated.lrc"))
