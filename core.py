@@ -7,6 +7,7 @@ import unicodedata
 
 import ncmkey
 from tinytag import TinyTag
+from fuzzyfinder import fuzzyfinder as fuzzy_match
 
 
 REGEX_TRACK_PREFIX = r"^(\d+\.?\s*)+\s+"
@@ -124,25 +125,6 @@ def generate_filename(
             filename_template.format(artists=artist_sep.join(artists), title=title)
         )
     )
-
-
-# https://github.com/amjith/fuzzyfinder/
-def fuzzy_match(string, collection, accessor=lambda x: x, sort_results=True):
-    suggestions = []
-    string = str(string) if not isinstance(string, str) else string
-    pat = ".*?".join(map(re.escape, string))
-    pat = "(?=({0}))".format(pat)  # lookahead regex to manage overlapping matches
-    regex = re.compile(pat, re.IGNORECASE)
-    for item in collection:
-        r = list(regex.finditer(accessor(item)))
-        if r:
-            best = min(r, key=lambda x: len(x.group(1)))  # find shortest match
-            suggestions.append((len(best.group(1)), best.start(), accessor(item), item))
-    if sort_results:
-        return (z[-1] for z in sorted(suggestions))
-    else:
-        return (z[-1] for z in sorted(suggestions, key=lambda x: x[:2]))
-
 
 def walk_topfolder(path: str):
     # 返回的数据结构与os.walk()保持一致
