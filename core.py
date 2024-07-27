@@ -49,7 +49,8 @@ def get_meta_via_tag(filepath: str) -> tuple[Optional[str], list[str], Optional[
     title = tag.title
     if a := tag.artist:
         artists = [a]
-        artists += tag.extra.get("other_artists", [])
+        if isinstance(oa := tag.extra.get("other_artists"), list):
+            artists += oa
     else:
         artists = []
     comment = tag.comment
@@ -70,8 +71,8 @@ def get_meta_via_filename(fn: str) -> tuple[str, list]:
     sp = fn.split(" - ", 1)
     if len(sp) == 2:
         # {artists} - {title}
-        artists, title = sp
-        artists = artists.split(",")
+        artist_str, title = sp
+        artists = artist_str.split(",")
     else:
         # {title}
         title = sp[0]
@@ -87,7 +88,7 @@ def get_fileinfo(file: str) -> tuple[Optional[str], list[str], Optional[int]]:
     未知的用 None 或 []占位
     """
     title = None
-    artists = []
+    artists: list[str] = []
 
     title, artists, comm = get_meta_via_tag(file)
     if comm:

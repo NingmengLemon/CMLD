@@ -1,7 +1,8 @@
 import json
 from urllib import parse
-import requests
+from typing import Any, Optional
 
+import requests
 from bs4 import BeautifulSoup as BS
 from retry import retry
 
@@ -15,7 +16,13 @@ HEADERS = {
 
 global_session = requests.Session()
 
-def get_str(url, headers=None, session=None, **kwargs):
+
+def get_str(
+    url: str,
+    headers: Optional[dict[str, Any]] = None,
+    session: Optional[requests.Session] = None,
+    **kwargs,
+):
     if headers is None:
         kwargs["headers"] = HEADERS.copy()
     kwargs.setdefault("timeout", 10)
@@ -24,8 +31,9 @@ def get_str(url, headers=None, session=None, **kwargs):
         resp.raise_for_status()
         return resp.text
 
+
 @retry(tries=RETRY_TIME, delay=0.5)
-def get_info(mid: int) -> dict:
+def get_info(mid: int) -> dict[str, Any]:
     url = "https://music.163.com/song?id={mid}".format(mid=mid)
     bs = BS(get_str(url), "html.parser")
     res = {
@@ -82,7 +90,7 @@ def get_album(aid: int) -> dict:
 
 
 @retry(tries=RETRY_TIME, delay=0.5)
-def search_music(*kws, limit: int = 10, offset: int = 0) -> dict:
+def search_music(*kws, limit: int = 10, offset: int = 0) -> list[dict[str, Any]]:
     url = "https://music.163.com/api/search/get/?s={}&limit={}&type=1&offset={}".format(
         "+".join([parse.quote(kw) for kw in kws]), limit, offset
     )
@@ -106,7 +114,7 @@ def search_music(*kws, limit: int = 10, offset: int = 0) -> dict:
 
 
 @retry(tries=RETRY_TIME, delay=0.5)
-def get_lyrics(mid: int) -> tuple:
+def get_lyrics(mid: int) -> tuple[Optional[str], Optional[str]]:
     """
     返回一个元组, 第一个项是原文, 第二个项是翻译
     没有的用 None 占位

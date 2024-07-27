@@ -4,7 +4,7 @@ import sys
 import logging
 import tkinter as tk
 from tkinter import filedialog
-from typing import Literal, Optional, TypeAlias
+from typing import Literal, Optional, TypeAlias, Any
 import argparse
 
 import colorama
@@ -24,9 +24,9 @@ from core import (
 VERSION = "2.3.0"
 
 LYRIC_VERSIONS = ["ask", "original", "translated", "both", "merge"]
-LyricVersion: TypeAlias = Literal["ask", "original", "translated", "both", "merge"]
+LyricVersionType: TypeAlias = Literal["ask", "original", "translated", "both", "merge"]
 
-config = {
+config: dict[str, Any] = {
     "version": VERSION,
     "output": {
         "encoding": "utf-8",
@@ -60,10 +60,10 @@ def init_root_window():
 @retry(exceptions=(PermissionError), tries=3, delay=0.5)
 def download_lyrics(
     mid: int,
-    topath: str = None,
-    version: LyricVersion = "original",
-    info: dict = None,
-    lrcs: dict = None,
+    topath: Optional[str] = None,
+    version: LyricVersionType = "original",
+    info: Optional[dict] = None,
+    lrcs: Optional[tuple[Optional[str], Optional[str]]] = None,
 ) -> Literal[0, 1, 2]:
     """
     info 是预处理信息, 从 ncmapis.get_info() 获取的数据, 为的是避免重复请求
@@ -82,15 +82,12 @@ def download_lyrics(
     返回成功下载的歌词数量, 只可能为: 0, 1, 2 (Merge 视为 2)
     """
     # 收集信息
-    version = version.strip().lower()
-    if info:
-        pass
-    else:
+    if info is None:
         info = ncmapis.get_info(mid)
-    if lrcs:
-        lrc_orig, lrc_trans = lrcs
-    else:
+    if lrcs is None:
         lrc_orig, lrc_trans = ncmapis.get_lyrics(mid)
+    else:
+        lrc_orig, lrc_trans = lrcs
     #
     print(
         "Music info: [",
@@ -103,7 +100,9 @@ def download_lyrics(
         logging.warning("Music ID %d has no lyrics", mid)
         return 0
     if not topath:
-        topath = filedialog.askdirectory(title="Specify an output path", parent=root_window)
+        topath = filedialog.askdirectory(
+            title="Specify an output path", parent=root_window
+        )
         if not topath:
             print(colorama.Fore.RED + "Unspecified output path, operation terminated.")
             return 0
@@ -157,6 +156,7 @@ def download_lyrics(
         os.remove(fm)
         os.remove(fs)
         return 2
+    return 0
 
 
 def menu(text: str, option_table: dict[str, str], dist_case: bool = True) -> str:
@@ -181,7 +181,7 @@ def menu(text: str, option_table: dict[str, str], dist_case: bool = True) -> str
             print(colorama.Fore.RED + "Unexpected input. Make choice again.")
 
 
-def ask_for_version() -> LyricVersion:
+def ask_for_version() -> LyricVersionType:
     return {
         "1": "original",
         "2": "translated",
@@ -213,7 +213,7 @@ def extract_id(
 
 def download_via_music_id(
     source: Optional[str] = None,
-    version: LyricVersion = "ask",
+    version: LyricVersionType = "ask",
     topath: Optional[str] = None,
 ) -> None:
     if not source:
@@ -236,7 +236,7 @@ def download_via_music_id(
 
 def download_via_album_id(
     source: Optional[str] = None,
-    default_version: LyricVersion = "ask",
+    default_version: LyricVersionType = "ask",
     topath: Optional[str] = None,
 ) -> None:
     if not source:
@@ -254,7 +254,9 @@ def download_via_album_id(
         print(colorama.Fore + "Invalid Album ID: %s" % album_id)
         return
     if not topath:
-        topath = filedialog.askdirectory(title="Specify an output path", parent=root_window)
+        topath = filedialog.askdirectory(
+            title="Specify an output path", parent=root_window
+        )
     if not topath:
         print(colorama.Fore.RED + "Unspecified output path, operation terminated.")
         return
@@ -336,11 +338,13 @@ def match_music(root: str, file: str) -> Optional[tuple[int, Optional[dict]]]:
 
 def download_via_scanning(
     path: Optional[str] = None,
-    default_version: LyricVersion = "ask",
+    default_version: LyricVersionType = "ask",
     top_only: Optional[bool] = None,
 ) -> None:
     if not path:
-        path = filedialog.askdirectory(title="Specify a folder to scan", parent=root_window)
+        path = filedialog.askdirectory(
+            title="Specify a folder to scan", parent=root_window
+        )
     if not path:
         print(colorama.Fore.RED + "Unspecified scanning path, operation terminated.")
         return
@@ -368,7 +372,7 @@ def download_via_scanning(
 
 
 def download_via_specifying(
-    files: Optional[list[str]] = None, default_version: LyricVersion = "ask"
+    files: Optional[list[str]] = None, default_version: LyricVersionType = "ask"
 ) -> None:
     if not files:
         files = filedialog.askopenfilenames(
