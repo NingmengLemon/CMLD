@@ -97,7 +97,7 @@ def download_lyrics(
         sep="",
     )
     if not lrc_orig:
-        logging.warning("Music ID %d has no lyrics", mid)
+        logging.warning("Music ID %s has no lyrics", mid)
         return 0
     if not topath:
         topath = filedialog.askdirectory(
@@ -108,7 +108,7 @@ def download_lyrics(
             return 0
     if version != "original" and not lrc_trans:
         version = "original"
-        logging.warning("There's only original lyrics to download: mID %d", mid)
+        logging.warning("There's only original lyrics to download: mID %s", mid)
     if version == "ask" and lrc_trans:
         version = ask_for_version()
     #
@@ -354,7 +354,7 @@ def download_via_scanning(
     if top_only is None:
         walk = {"1": walk_topfolder, "2": os.walk}[
             menu("Choose scanning depth.", {"1": "Top folder only", "2": "All"})
-        ](path)
+        ]
     elif top_only:
         walk = walk_topfolder
     else:
