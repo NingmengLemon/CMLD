@@ -21,7 +21,7 @@ from core import (
     walk_topfolder
 )
 
-VERSION = "2.3.0"
+VERSION = "2.3.1"
 
 LYRIC_VERSIONS = ["ask", "original", "translated", "both", "merge"]
 LyricVersionType: TypeAlias = Literal["ask", "original", "translated", "both", "merge"]
