@@ -9,6 +9,7 @@ import argparse
 
 import colorama
 from retry import retry
+from fuzzyfinder.main import fuzzyfinder as fuzzy_match
 from tinytag import TinyTag
 
 import ncmapis
@@ -17,8 +18,7 @@ from core import (
     generate_filename,
     save_lyrics,
     get_fileinfo,
-    walk_topfolder,
-    fuzzy_match,
+    walk_topfolder
 )
 
 VERSION = "2.3.0"
@@ -456,14 +456,13 @@ def app_noui(args: argparse.Namespace):
         # album
         download_via_album_id(source, default_version=args.version, topath=args.saveto)
         return
-    elif itype == "music_id":
+    if itype == "music_id":
         # single music
         download_via_music_id(source, version=args.version, topath=args.saveto)
         return
-    else:
-        # ?
-        print("unknown source ww")
-        return
+    # ?
+    print("unknown source ww")
+    return
 
 
 if __name__ == "__main__":

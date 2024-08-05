@@ -7,7 +7,7 @@ from zhconv import convert
 
 
 class LrcHandler:
-    TIMETAG_REGEX = r"\[\s*([0-9]+)\s*\:\s*([0-9]{2})\s*[\.\:]\s*([0-9]+)\s*\]"
+    TIMETAG_REGEX = r"\[\s*([0-9]+)\s*\:\s*([0-9]{2})\s*([\.\:]\s*([0-9]+)\s*)?\]"
 
     EXTRATAG_REGEX = r"\[\s*([a-zA-Z]{,5})\s*\:\s*(.+?)\s*\]"
 
@@ -38,7 +38,7 @@ class LrcHandler:
 
     @property
     def dict(self):
-        return {k: v for k, v in self.content}
+        return dict(self.content)
 
     def __dict__(self):
         return self.dict
@@ -66,8 +66,8 @@ class LrcHandler:
             timetags = re.findall(cls.TIMETAG_REGEX, line)
             line = re.sub(cls.TIMETAG_REGEX, "", line)
             for timetag in timetags:
-                m, s, cs = timetag
-                timetag = round(int(m) * 60 + float(s + "." + cs)+offset, 2)
+                m, s, _, cs = timetag
+                timetag = round(int(m) * 60 + float(s + "." + cs) + offset, 2)
                 result.append((timetag, line))
 
         return sorted(result, key=lambda x: x[0]), extra
@@ -90,8 +90,12 @@ def combine(
     for k, v in lrc_main.content:
         result += "\n\n[%s]%s" % (LrcHandler.second2time(k), v)
         if k in d_sub:
-            result += "\n[%s]%s" % (LrcHandler.second2time(k), convert(d_sub[k],'zh-cn'))
+            result += "\n[%s]%s" % (
+                LrcHandler.second2time(k),
+                convert(d_sub[k], "zh-cn"),
+            )
     return result
+
 
 TEST_LRC = """
 [00:01.83](Prelude)

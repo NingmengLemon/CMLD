@@ -2,12 +2,11 @@ from typing import Optional
 import re
 import logging
 import os
-
 import unicodedata
 
-import ncmkey
 from tinytag import TinyTag
-from fuzzyfinder import fuzzyfinder as fuzzy_match
+
+import ncmkey
 
 
 REGEX_TRACK_PREFIX = r"^(\d+\.?\s*)+\s+"
