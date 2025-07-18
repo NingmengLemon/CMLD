@@ -1,7 +1,7 @@
+import copy
+import os
 import re
 import typing
-import os
-import copy
 
 from zhconv import convert
 
@@ -39,9 +39,6 @@ class LrcHandler:
     @property
     def dict(self):
         return dict(self.content)
-
-    def __dict__(self):
-        return self.dict
 
     def __iter__(self):
         return iter(self.content)
