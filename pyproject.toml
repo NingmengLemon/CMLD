@@ -1,0 +1,19 @@
+[project]
+name = "cmld"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "beautifulsoup4>=4.13.4",
+    "fuzzyfinder>=2.3.0",
+    "pycryptodomex>=3.23.0",
+    "requests>=2.32.4",
+    "zhconv>=1.4.3",
+]
+
+[dependency-groups]
+dev = [
+    "ipykernel>=6.29.5",
+    "types-requests>=2.32.4.20250611",
+]
